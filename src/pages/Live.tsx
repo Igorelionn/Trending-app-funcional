@@ -2075,9 +2075,10 @@ export default function Live() {
                 ) : streamers.length > 0 ? (
                   <div className="space-y-3">
                     {streamers.map(streamer => (
-                      <div 
-                        key={streamer.id} 
-                        className="bg-black/20 border border-gray-900/30 rounded-lg p-4"
+                      <div
+                        key={streamer.id}
+                        onClick={() => navigate(`/streamer/${streamer.id}`)}
+                        className="bg-black/20 border border-gray-900/30 rounded-lg p-4 cursor-pointer hover:bg-black/30 hover:border-gray-800/50 transition-all"
                       >
                         <div className="flex items-center gap-4">
                           {/* Avatar */}
@@ -2094,7 +2095,7 @@ export default function Live() {
                               <h3 className="text-sm font-normal text-gray-200 truncate">
                                 {streamer.display_name}
                               </h3>
-                              <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 bg-gray-900/50 text-gray-500 border-gray-800/50">
+                              <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 bg-gray-900/50 text-gray-500 border-gray-800/50 hover:bg-gray-900/50 cursor-default">
                                 Streamer
                               </Badge>
                             </div>

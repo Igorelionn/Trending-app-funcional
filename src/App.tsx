@@ -35,6 +35,7 @@ import { useLanguage, Language } from '@/contexts/LanguageContext';
 import Support from '@/pages/Support';
 import Admin from '@/pages/Admin';
 import Live from '@/pages/Live';
+import StreamerProfile from '@/pages/StreamerProfile';
 import { LiveStreamProvider } from '@/contexts/LiveStreamContext';
 import { LiveStreamPermissionProvider } from '@/components/LiveStreamPermissionProvider';
 import MeetingRoom from '@/pages/MeetingRoom';
@@ -387,6 +388,7 @@ const AppRouter = () => {
       
       {/* Rotas existentes de streaming */}
       <Route path="/live" element={<AuthGuard checkOnly={true}><Live /></AuthGuard>} />
+      <Route path="/streamer/:streamerId" element={<AuthGuard checkOnly={true}><StreamerProfile /></AuthGuard>} />
       <Route path="/live/:streamId" element={<AuthGuard checkOnly={true}><MeetingRoom /></AuthGuard>} />
       <Route path="/streamer/:streamId" element={<AuthGuard checkOnly={true}><StreamerDashboard /></AuthGuard>} />
       <Route path="/watch/:streamId" element={<AuthGuard checkOnly={true}><StreamViewer /></AuthGuard>} />

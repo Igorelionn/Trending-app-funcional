@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Settings, MessageCircle, Link as LinkIcon, Users, Shield, Clock, Check, Ban, MessageSquareOff, Timer } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
@@ -119,11 +120,11 @@ export const StreamerSettingsModal: React.FC<StreamerSettingsModalProps> = ({
     { id: 'moderation' as TabType, label: 'Moderação', icon: Shield }
   ];
 
-  return (
-    <div className="fixed inset-0 z-50 bg-black overflow-hidden flex flex-col">
+  const modalContent = (
+    <div className="fixed inset-0 z-[9999] bg-black overflow-hidden flex flex-col">
       {/* Header fixo no topo */}
       <div className="flex-shrink-0 bg-gradient-to-b from-black via-black/98 to-transparent backdrop-blur-xl border-b border-white/[0.08]">
-        <div className="max-w-7xl mx-auto px-8 py-6">
+        <div className="w-full px-8 py-6">
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center gap-3">
               <div className="p-2 bg-white/[0.03] rounded-xl border border-white/[0.05]">
@@ -172,7 +173,7 @@ export const StreamerSettingsModal: React.FC<StreamerSettingsModalProps> = ({
 
       {/* Conteúdo scrollável */}
       <div className="flex-1 overflow-y-auto minimal-scrollbar">
-        <div className="max-w-7xl mx-auto px-8 py-10">
+        <div className="w-full px-8 py-10">
           {/* Tab: Configurações */}
           {activeTab === 'settings' && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -332,7 +333,7 @@ export const StreamerSettingsModal: React.FC<StreamerSettingsModalProps> = ({
       {/* Footer fixo na parte inferior - apenas para Settings */}
       {activeTab === 'settings' && (
         <div className="flex-shrink-0 bg-gradient-to-t from-black via-black/98 to-transparent backdrop-blur-xl border-t border-white/[0.08]">
-          <div className="max-w-7xl mx-auto px-8 py-6 flex justify-end gap-4">
+          <div className="w-full px-8 py-6 flex justify-end gap-4">
             <button
               onClick={onClose}
               className="h-12 px-6 bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.05] rounded-2xl text-[14px] font-light text-white/80 tracking-wide transition-all duration-200 active:scale-95"
@@ -361,4 +362,6 @@ export const StreamerSettingsModal: React.FC<StreamerSettingsModalProps> = ({
       )}
     </div>
   );
+
+  return createPortal(modalContent, document.body);
 };
