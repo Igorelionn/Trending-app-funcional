@@ -916,7 +916,7 @@
   content: "";
   position: absolute;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(58, 110, 165, 0.3) 0%, rgba(10, 22, 37, 0) 70%);
+  background: radial-gradient(circle, rgba(100, 116, 139, 0.15) 0%, rgba(15, 23, 42, 0) 70%);
   animation: fadeParticles 6s infinite ease-in-out, floatParticle 8s infinite ease-in-out;
 }
 
