@@ -16,8 +16,8 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
 
-const FINNHUB_API_KEY = 'd09dep1r01qnv9ci80tgd09dep1r01qnv9ci80u0';
-const SUPABASE_URL = process.env.VITE_SUPABASE_URL || 'https://arkrjextwpwqhrvcijyr.supabase.co';
+const FINNHUB_API_KEY = process.env.FINNHUB_API_KEY || '';
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL || '';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
 // Interface para os dados retornados pela API Finnhub

@@ -1,11 +1,10 @@
-// Função para verificar se o usuário tem permissão para iniciar lives
-export const canStartLive = (userEmail: string): boolean => {
-  // Apenas o email específico pode iniciar lives
-  return userEmail === 'ie702959@gmail.com';
-};
+/**
+ * Verificações de permissão de streaming.
+ * A autorização real é feita pelo LiveStreamPermissionProvider que consulta
+ * o campo is_admin em user_profiles no banco de dados.
+ * Estas funções são mantidas para compatibilidade de interface.
+ */
 
-// Função para verificar se deve mostrar o botão de iniciar live
-export const shouldShowStartLiveButton = (userEmail: string | undefined | null): boolean => {
-  if (!userEmail) return false;
-  return canStartLive(userEmail);
-}; 
+export const canStartLive = (_userEmail: string): boolean => false;
+
+export const shouldShowStartLiveButton = (_userEmail: string | undefined | null): boolean => false;

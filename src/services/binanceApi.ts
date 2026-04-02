@@ -1,14 +1,12 @@
 import { API_KEYS } from './apiKeys';
-// Removendo a importação do crypto que não funciona no navegador
-// import * as crypto from 'crypto';
 
-// Chaves de API Binance (autenticação)
-const API_KEY = API_KEYS.BINANCE.API_KEY;
-const API_SECRET = API_KEYS.BINANCE.API_SECRET;
+// ⚠️ IMPORTANTE: VITE_BINANCE_API_SECRET NUNCA deve ser definida em produção.
+// As funções autenticadas abaixo (getAccountInfo, createOrder, etc.) são dead code —
+// nunca são chamadas pelo app — e existem apenas como referência futura.
+// Para operações autenticadas, mova-as para um serverless function no backend.
 
-// URLs de base
+// URLs de base para dados públicos
 const BASE_URL = 'https://api.binance.com';
-const BASE_URL_US = 'https://api.binance.us'; // Para usuários dos EUA
 
 // WebSocket connections
 let priceWebSocket: WebSocket | null = null;

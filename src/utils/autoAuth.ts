@@ -6,33 +6,48 @@ import type { Database } from '@/types/supabase';
  * Verifica se há uma sessão válida no servidor (não apenas no localStorage)
  * @returns Promise<boolean>
  */
+const isLockContention = (err: unknown): boolean => {
+  if (!err) return false;
+  const msg = (err as any)?.message || '';
+  const name = (err as any)?.name || '';
+  return name === 'AbortError' || msg.includes('steal') || msg.includes('Lock broken');
+};
+
 export const hasValidSession = async (): Promise<boolean> => {
   try {
-    // Verificar sessão no servidor
     const { data: sessionData, error } = await (supabase as SupabaseClient<Database>).auth.getSession();
     
     if (error) {
+      if (isLockContention(error)) {
+        // Contenção de lock é transitória — presume sessão válida
+        return true;
+      }
       console.warn('⚠️ [AutoAuth] Erro ao verificar sessão:', error);
       return false;
     }
     
     if (!sessionData.session) {
-      // Nenhuma sessão encontrada
       return false;
     }
     
-    // Verificar se a sessão é válida tentando obter dados do usuário
     const { data: userData, error: userError } = await (supabase as SupabaseClient<Database>).auth.getUser();
     
-    if (userError || !userData.user) {
+    if (userError) {
+      if (isLockContention(userError)) {
+        // Contenção de lock — sessão local existe, presume válida
+        return true;
+      }
       console.warn('⚠️ [AutoAuth] Sessão inválida ou expirada');
       return false;
     }
     
-    // Sessão válida confirmada
-    return true;
+    return !!userData.user;
     
   } catch (error) {
+    if (isLockContention(error)) {
+      // AbortError por lock contention é transitório — não invalida a sessão
+      return true;
+    }
     console.warn('⚠️ [AutoAuth] Erro na verificação de sessão:', error);
     return false;
   }
@@ -141,8 +156,12 @@ export const hasInconsistentAuthData = async (): Promise<boolean> => {
     return hasLocalAuthData && !hasServerSession;
     
   } catch (error) {
+    if (isLockContention(error)) {
+      // Contenção de lock é transitória — não assumir inconsistência
+      return false;
+    }
     console.warn('⚠️ [AutoAuth] Erro ao verificar inconsistências:', error);
-    return true; // Em caso de erro, assumir inconsistência
+    return false;
   }
 };
 

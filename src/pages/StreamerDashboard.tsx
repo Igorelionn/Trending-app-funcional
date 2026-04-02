@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from "@/contexts/AuthContext";
 import { useLiveStream } from "@/contexts/LiveStreamContext";
+import { useLiveKit } from "@/contexts/LiveKitContext";
+import { WHIPSender, WHIPStatus } from "@/services/whipService";
 import { useNotifications } from "@/contexts/NotificationContext";
 import { StreamSettingsPanel } from "@/components/streaming/StreamSettingsPanel";
 import { ViewersControlPanel } from "@/components/streaming/ViewersControlPanel";
@@ -88,6 +90,16 @@ export default function StreamerDashboard() {
   const { streamId } = useParams<{ streamId: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
+  
+  // Debug: Verificar streamId
+  useEffect(() => {
+    console.log('🔍 [StreamerDashboard] streamId dos params:', streamId);
+    if (!streamId || streamId === 'undefined') {
+      console.error('❌ [StreamerDashboard] streamId inválido, redirecionando...');
+      navigate('/live');
+    }
+  }, [streamId, navigate]);
+  
   const { 
     activeStream, 
     fetchStreamById, 
@@ -102,6 +114,16 @@ export default function StreamerDashboard() {
     updatePublisherStream,
     getConnectionStatus
   } = useLiveStream();
+
+  const {
+    joinRoom: liveKitJoinRoom,
+    leaveRoom: liveKitLeaveRoom,
+    publishStream: liveKitPublishStream,
+    replaceStream: liveKitReplaceStream,
+    viewerCount: liveKitViewerCount,
+    isConnected: liveKitConnected,
+  } = useLiveKit();
+
   const { addNotification } = useNotifications();
   const supabase = getSupabase();
 
@@ -109,6 +131,8 @@ export default function StreamerDashboard() {
   const [isLive, setIsLive] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
   const [isEnding, setIsEnding] = useState(false);
+  const whipSenderRef = useRef<WHIPSender | null>(null);
+  const [whipStatus, setWhipStatus] = useState<WHIPStatus>('idle');
   const [streamStats, setStreamStats] = useState<StreamStats>({
     viewerCount: 0,
     duration: 0,
@@ -398,6 +422,13 @@ export default function StreamerDashboard() {
     }
   }, [comments, user?.id]);
   
+  // Sincronizar viewers do LiveKit (fonte de verdade) com streamStats
+  useEffect(() => {
+    if (liveKitConnected && liveKitViewerCount >= 0) {
+      setStreamStats(prev => ({ ...prev, viewerCount: liveKitViewerCount }));
+    }
+  }, [liveKitViewerCount, liveKitConnected]);
+
   // Sincronizar viewers reais com o sistema de viewers adicionados
   useEffect(() => {
     setRealViewerCount(streamStats.viewerCount);
@@ -532,42 +563,6 @@ export default function StreamerDashboard() {
         videoTrackMuted: stream.getVideoTracks()[0]?.muted
       });
 
-      // ✅ VERIFICAR se o track de vídeo está realmente gerando frames
-      const videoTrack = stream.getVideoTracks()[0];
-      if (videoTrack) {
-        console.log('🔍 [StreamerDashboard] Testando se câmera está capturando frames...');
-        
-        try {
-          const imageCapture = new ImageCapture(videoTrack);
-          // @ts-expect-error - grabFrame exists but may not be in TypeScript definitions
-          const imageBitmap = await imageCapture.grabFrame();
-          console.log('✅ [StreamerDashboard] Câmera capturando frames!', {
-            width: imageBitmap.width,
-            height: imageBitmap.height
-          });
-          imageBitmap.close();
-        } catch (e) {
-          console.warn('⚠️ [StreamerDashboard] Não foi possível capturar frame da câmera:', e);
-          console.log('⏳ [StreamerDashboard] Aguardando câmera "aquecer"...');
-          
-          // Aguardar um pouco e tentar novamente
-          await new Promise(resolve => setTimeout(resolve, 500));
-          
-          try {
-            const imageCapture = new ImageCapture(videoTrack);
-            // @ts-expect-error - grabFrame exists but may not be in TypeScript definitions
-            const imageBitmap = await imageCapture.grabFrame();
-            console.log('✅ [StreamerDashboard] Câmera capturando frames após aguardar!', {
-              width: imageBitmap.width,
-              height: imageBitmap.height
-            });
-            imageBitmap.close();
-          } catch (e2) {
-            console.error('❌ [StreamerDashboard] Câmera não está capturando frames mesmo após aguardar:', e2);
-          }
-        }
-      }
-
       localStream.current = stream;
       
       if (localVideoRef.current) {
@@ -576,13 +571,17 @@ export default function StreamerDashboard() {
           console.warn('Erro ao reproduzir câmera inicial:', error);
         });
         
-        // Aguardar metadata carregar
+        // Aguardar metadata carregar com timeout de 3s para não travar
         await new Promise<void>((resolve) => {
-          if (localVideoRef.current!.readyState >= 2) {
+          if (!localVideoRef.current || localVideoRef.current.readyState >= 2) {
             resolve();
-          } else {
-            localVideoRef.current!.onloadedmetadata = () => resolve();
+            return;
           }
+          const timeout = setTimeout(resolve, 3000); // nunca trava mais de 3s
+          localVideoRef.current!.onloadedmetadata = () => {
+            clearTimeout(timeout);
+            resolve();
+          };
         });
         
         console.log('📹 [StreamerDashboard] Vídeo da câmera carregado:', {
@@ -1292,6 +1291,8 @@ export default function StreamerDashboard() {
         });
         
         await updatePublisherStream(streamToSend);
+        if (liveKitConnected) await liveKitReplaceStream(streamToSend);
+        if (whipSenderRef.current) await whipSenderRef.current.replaceStream(streamToSend);
       } else {
         console.warn('⚠️ [StreamerDashboard] Não foi possível enviar compartilhamento:', {
           isLive,
@@ -1353,10 +1354,11 @@ export default function StreamerDashboard() {
     
     console.log('🖥️ Compartilhamento de tela encerrado');
     
-    // ✅ NOVO: Voltar para stream da câmera para viewers
+    // Voltar para stream da câmera para viewers
     if (isLive && localStream.current) {
-      console.log('🔄 [StreamerDashboard] Voltando para câmera para viewers');
       await updatePublisherStream(localStream.current);
+      if (liveKitConnected) await liveKitReplaceStream(localStream.current);
+      if (whipSenderRef.current) await whipSenderRef.current.replaceStream(localStream.current);
     }
   };
 
@@ -1709,26 +1711,43 @@ export default function StreamerDashboard() {
         throw new Error('Falha ao inicializar câmera');
       }
 
-      // Inicializar WebRTC
-      const webRTCInitialized = await initializeWebRTC(streamId, true);
-      if (!webRTCInitialized) {
-        throw new Error('Falha ao inicializar transmissão');
-      }
-
-      // Se há compartilhamento de tela ativo, incluir no WebRTC
-      if (isScreenSharing && screenStream.current) {
-        // TODO: Implementar lógica para incluir screen share no WebRTC
-        console.log('Screen sharing detectado durante início da transmissão');
-      }
-
-      // Atualizar status no banco
+      // Atualizar status no banco PRIMEIRO (nunca bloqueia)
       const success = await startStream(streamId);
       if (!success) {
         throw new Error('Falha ao iniciar transmissão no servidor');
       }
 
       setIsLive(true);
-      toast.success('Transmissão iniciada com sucesso!');
+
+      // Tentar WHIP (servidor dedicado, escala para 10k viewers)
+      const mediaServerUrl = import.meta.env.VITE_MEDIA_SERVER_URL;
+      if (mediaServerUrl && localStream.current) {
+        const { stream_key } = activeStream || { stream_key: streamId };
+        const whip = new WHIPSender({
+          onStatusChange: setWhipStatus,
+          onError: (err) => console.warn('[WHIP]', err),
+        });
+        whipSenderRef.current = whip;
+        whip.start(stream_key || streamId, localStream.current)
+          .then(ok => {
+            if (ok) console.log('✅ WHIP conectado — HLS disponível para 10k viewers');
+            else console.warn('⚠️ WHIP falhou, usando LiveKit como fallback');
+          })
+          .catch(() => { /* fallback abaixo */ });
+      }
+
+      // LiveKit em background como fallback (funciona sem servidor dedicado)
+      if (!import.meta.env.VITE_MEDIA_SERVER_URL) {
+        liveKitJoinRoom(streamId, 'streamer')
+          .then(async (joined) => {
+            if (joined && localStream.current) {
+              await liveKitPublishStream(localStream.current);
+              console.log('✅ LiveKit conectado (modo fallback)');
+            }
+          })
+          .catch((err) => console.warn('⚠️ LiveKit fallback falhou:', err));
+      }
+      // toast.success('Transmissão iniciada com sucesso!'); // Removido
       
     } catch (error) {
       console.error('Erro ao iniciar transmissão:', error);
@@ -1766,11 +1785,17 @@ export default function StreamerDashboard() {
         pipCameraRef.current.srcObject = null;
       }
 
-      // Parar WebRTC
+      // Parar WHIP e LiveKit
       try {
-      await stopWebRTC();
+        if (whipSenderRef.current) {
+          await whipSenderRef.current.stop();
+          whipSenderRef.current = null;
+          setWhipStatus('idle');
+        }
+        await liveKitLeaveRoom();
+        await stopWebRTC();
       } catch (webrtcError) {
-        console.warn('Erro ao parar WebRTC:', webrtcError);
+        console.warn('Erro ao parar transmissão:', webrtcError);
       }
       
       // Parar streams locais
@@ -1813,7 +1838,7 @@ export default function StreamerDashboard() {
         // Não interromper o processo se houver erro no banco
       }
 
-      toast.success('Transmissão encerrada com sucesso!');
+      // toast.success('Transmissão encerrada com sucesso!'); // Removido
       
       // Redirecionar após alguns segundos
       setTimeout(() => {
@@ -2090,10 +2115,11 @@ export default function StreamerDashboard() {
       
       console.log('✅ [StreamerDashboard] Câmera trocada com sucesso');
       
-      // ✅ NOVO: Atualizar stream para viewers
+      // Atualizar stream para viewers
       if (isLive && !isScreenSharing) {
-        console.log('🔄 [StreamerDashboard] Enviando nova câmera para viewers');
         await updatePublisherStream(newStream);
+        if (liveKitConnected) await liveKitReplaceStream(newStream);
+        if (whipSenderRef.current) await whipSenderRef.current.replaceStream(newStream);
       }
     } catch (error) {
       console.error('❌ [StreamerDashboard] Erro ao alterar câmera:', error);

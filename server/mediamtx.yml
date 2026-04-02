@@ -1,0 +1,55 @@
+# ─────────────────────────────────────────────────────────────────
+# MediaMTX — Configuração para 30 streamers / 10k viewers por live
+# ─────────────────────────────────────────────────────────────────
+
+logLevel: info
+
+# Desabilitar protocolos que não precisamos
+rtspDisable: false
+rtmpDisable: false
+hlsDisable: false
+webRTCDisable: false   # precisa para WHIP (ingresso do browser)
+srtDisable: true
+
+# ── WHIP / WebRTC (browser → servidor) ──────────────────────────
+webRTCAddress: :8189
+webRTCICEServers2:
+  - url: stun:stun.l.google.com:19302
+
+# ── HLS (saída para viewers) ────────────────────────────────────
+hlsAddress: :8888
+hlsAlwaysRemux: false
+hlsVariant: lowLatency        # segmentos de 1s (HLS de baixa latência ~3-6s)
+hlsSegmentCount: 5             # manter os últimos 5 segmentos em memória
+hlsSegmentDuration: 1s
+hlsPartDuration: 200ms
+hlsSegmentMaxSize: 50MB
+hlsAllowOrigin: "*"           # CORS: Cloudflare e browsers podem acessar
+
+# ── Autenticação ─────────────────────────────────────────────────
+# Substitua pelo seu token secreto (mesmo valor do VITE_MEDIA_SERVER_KEY)
+authMethod: jwt
+authJWTJWKS: ""               # deixar vazio para usar bearer token simples
+
+# Configuração de acesso por path
+pathDefaults:
+  # Qualquer stream pode publicar via WHIP (autenticação no app)
+  publishUser: ""
+  publishPass: ""
+  readUser: ""
+  readPass: ""
+
+# ── Performance para 30 streams simultâneos ─────────────────────
+readBufferCount: 2048           # buffer maior para alta carga
+writeBufferCount: 2048
+
+# ── RTMP (OBS pode usar este endpoint também) ────────────────────
+rtmpAddress: :1935
+
+# ── API interna (status, métricas) ──────────────────────────────
+api: yes
+apiAddress: 127.0.0.1:9997    # apenas local, não exposto
+
+# ── Métricas Prometheus (opcional) ──────────────────────────────
+metrics: yes
+metricsAddress: 127.0.0.1:9998

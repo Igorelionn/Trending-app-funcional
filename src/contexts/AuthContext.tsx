@@ -199,6 +199,15 @@ export const AuthProvider = React.memo<AuthProviderProps>(({ children }) => {
             fetchProfileInBackground(user, session);
           }
         } else if (event === 'SIGNED_OUT') {
+          // Limpar dados de perfil do usuário para evitar vazamento entre contas
+          localStorage.removeItem('user-avatar');
+          localStorage.removeItem('user-avatar-timestamp');
+          localStorage.removeItem('avatar-backup-dataurl');
+          localStorage.removeItem('user-name');
+          localStorage.removeItem('trader_preferences');
+          localStorage.removeItem('avatar-migrated-to-db');
+          // Notificar outros contextos para resetar estado em memória
+          window.dispatchEvent(new CustomEvent('auth-signed-out'));
           setState({ ...initialAuthState, loading: false });
         }
       }
@@ -232,19 +241,6 @@ export const AuthProvider = React.memo<AuthProviderProps>(({ children }) => {
     }
   }, [state.user]);
 
-  // Função para verificar estado do token e sessão
-  const checkTokenState = useCallback(async () => {
-    try {
-      const session = localStorage.getItem('supabase.auth.token');
-      if (session) {
-        // Token encontrado (silenciado)
-      } else {
-        // Nenhum token (silenciado)
-      }
-    } catch (error) {
-      console.error('Erro ao verificar token:', error);
-    }
-  }, []);
 
   // Fazer login com email/senha
   const signInWithEmail = useCallback(async (email: string, password: string, remember: boolean = false) => {
@@ -259,8 +255,6 @@ export const AuthProvider = React.memo<AuthProviderProps>(({ children }) => {
     
     try {
       setState(prevState => ({ ...prevState, loading: true }));
-      
-      await checkTokenState();
       
       // Fazer login
       const { data, error } = await userService.signInWithEmail(email, password, remember);
@@ -301,7 +295,7 @@ export const AuthProvider = React.memo<AuthProviderProps>(({ children }) => {
       }));
       return { error: error as Error };
     }
-  }, [checkTokenState]);
+  }, []);
 
   // Fazer cadastro com email
   const signUp = useCallback(async (email: string, password: string, birthdate?: string) => {
@@ -340,27 +334,27 @@ export const AuthProvider = React.memo<AuthProviderProps>(({ children }) => {
   // Fazer login com provedor (Google, GitHub, etc.)
   const signInWithProvider = async (provider: Provider) => {
     try {
-      setState({ ...state, loading: true });
+      setState(prev => ({ ...prev, loading: true }));
       
       const { data, error } = await userService.signInWithProvider(provider);
       
       if (error) {
-        setState({
-          ...state,
+        setState(prev => ({
+          ...prev,
           error: error instanceof Error ? error : new Error(String(error)),
           loading: false,
-        });
+        }));
         return { error: error instanceof Error ? error : new Error(String(error)) };
       }
       
       return { error: null as Error | null };
     } catch (error) {
       console.error(`Erro ao fazer login com ${provider}:`, error);
-      setState({
-        ...state,
+      setState(prev => ({
+        ...prev,
         error: error as Error,
         loading: false,
-      });
+      }));
       return { error: error as Error };
     }
   };
@@ -368,7 +362,7 @@ export const AuthProvider = React.memo<AuthProviderProps>(({ children }) => {
   // Fazer logout
   const signOut = async () => {
     try {
-      setState({ ...state, loading: true });
+      setState(prev => ({ ...prev, loading: true }));
       
       // Salvar o idioma atual antes de fazer logout
       const appLanguage = localStorage.getItem('app-language');
@@ -376,11 +370,11 @@ export const AuthProvider = React.memo<AuthProviderProps>(({ children }) => {
       const { error } = await userService.signOut();
       
       if (error) {
-        setState({
-          ...state,
+        setState(prev => ({
+          ...prev,
           error: error instanceof Error ? error : new Error(String(error)),
           loading: false,
-        });
+        }));
         return;
       }
       
@@ -394,6 +388,15 @@ export const AuthProvider = React.memo<AuthProviderProps>(({ children }) => {
       sessionStorage.removeItem('prevent_auth_redirect');
       sessionStorage.removeItem('normal-login-in-progress');
       sessionStorage.removeItem('registered-email');
+
+      // Limpar dados de perfil do usuário anterior (avatar, nome, preferências)
+      localStorage.removeItem('user-avatar');
+      localStorage.removeItem('user-avatar-timestamp');
+      localStorage.removeItem('avatar-backup-dataurl');
+      localStorage.removeItem('user-name');
+      localStorage.removeItem('trader_preferences');
+      localStorage.removeItem('avatar-migrated-to-db');
+      sessionStorage.removeItem('news_translations_v2');
       
       // Restaurar o idioma no localStorage após o logout
       if (appLanguage) {
@@ -403,26 +406,26 @@ export const AuthProvider = React.memo<AuthProviderProps>(({ children }) => {
       setState({ ...initialAuthState, loading: false });
     } catch (error) {
       console.error('Erro ao fazer logout:', error);
-      setState({
-        ...state,
+      setState(prev => ({
+        ...prev,
         error: error as Error,
         loading: false,
-      });
+      }));
     }
   };
 
   // Verificar email
   const verifyEmail = async (email: string) => {
     try {
-      setState({ ...state, loading: true });
+      setState(prev => ({ ...prev, loading: true }));
       
       const { error } = await userService.verifyEmail(email);
       
-      setState({
-        ...state,
+      setState(prev => ({
+        ...prev,
         loading: false,
         error: error instanceof Error ? error : new Error(String(error)),
-      });
+      }));
       
       if (!error) {
         toast.success(
@@ -434,11 +437,11 @@ export const AuthProvider = React.memo<AuthProviderProps>(({ children }) => {
       return { error: error instanceof Error ? error : (error ? new Error(String(error)) : null) };
     } catch (error) {
       console.error('Erro ao verificar email:', error);
-      setState({
-        ...state,
+      setState(prev => ({
+        ...prev,
         error: error as Error,
         loading: false,
-      });
+      }));
       return { error: error as Error };
     }
   };
@@ -446,15 +449,15 @@ export const AuthProvider = React.memo<AuthProviderProps>(({ children }) => {
   // Recuperação de senha
   const resetPassword = async (email: string) => {
     try {
-      setState({ ...state, loading: true });
+      setState(prev => ({ ...prev, loading: true }));
       
       const { error } = await userService.resetPassword(email);
       
-      setState({
-        ...state,
+      setState(prev => ({
+        ...prev,
         loading: false,
         error: error instanceof Error ? error : new Error(String(error)),
-      });
+      }));
       
       if (!error) {
         toast.success(
@@ -466,11 +469,11 @@ export const AuthProvider = React.memo<AuthProviderProps>(({ children }) => {
       return { error: error instanceof Error ? error : (error ? new Error(String(error)) : null) };
     } catch (error) {
       console.error('Erro ao resetar senha:', error);
-      setState({
-        ...state,
+      setState(prev => ({
+        ...prev,
         error: error as Error,
         loading: false,
-      });
+      }));
       return { error: error as Error };
     }
   };
@@ -478,36 +481,36 @@ export const AuthProvider = React.memo<AuthProviderProps>(({ children }) => {
   // Atualizar perfil
   const updateProfile = async (profile: Partial<UserProfile>) => {
     try {
-      setState({ ...state, loading: true });
+      setState(prev => ({ ...prev, loading: true }));
       
       const { data, error } = await userService.updateUserProfile(profile);
       
       if (error) {
-        setState({
-          ...state,
+        setState(prev => ({
+          ...prev,
           error: error instanceof Error ? error : new Error(String(error)),
           loading: false,
-        });
+        }));
         return { error: error instanceof Error ? error : new Error(String(error)) };
       }
       
-      setState({
-        ...state,
+      setState(prev => ({
+        ...prev,
         profile: data,
         loading: false,
         error: null,
-      });
+      }));
       
       toast.success('Perfil atualizado com sucesso!');
       
       return { error: null as Error | null };
     } catch (error) {
       console.error('Erro ao atualizar perfil:', error);
-      setState({
-        ...state,
+      setState(prev => ({
+        ...prev,
         error: error as Error,
         loading: false,
-      });
+      }));
       return { error: error as Error };
     }
   };

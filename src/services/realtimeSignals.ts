@@ -70,9 +70,29 @@ class RealtimeSignalsService {
   private updateCallbacks: Set<UpdateCallback> = new Set();
   private isInitialized = false;
   private isIntentionalDisconnect = false; // 🔥 Flag para evitar loop de reconexão
-  private readonly STORAGE_KEY = 'realtime_signals_cache';
+  private supporterCode: string | null = null; // 🔥 Código de apoiador do usuário
   private readonly CACHE_VERSION_KEY = 'realtime_signals_cache_version';
-  private readonly CURRENT_VERSION = '3.0'; // 🔥 Incrementar quando mudar estrutura de dados
+  private readonly CURRENT_VERSION = '3.1'; // 🔥 Incrementar quando mudar estrutura de dados
+  
+  // 🔥 Getter dinâmico para STORAGE_KEY baseado no código
+  private get STORAGE_KEY(): string {
+    const code = this.getSupporterCode();
+    return `realtime_signals_cache_${code || 'DEFAULT'}`;
+  }
+  
+  // 🔥 Buscar código de apoiador do localStorage
+  private getSupporterCode(): string | null {
+    try {
+      const prefs = localStorage.getItem('trader_preferences');
+      if (prefs) {
+        const parsed = JSON.parse(prefs);
+        return parsed.supporter_code || null;
+      }
+    } catch {
+      // Ignorar erro
+    }
+    return null;
+  }
   
   constructor() {
     // 🔥 Verificar versão e limpar se necessário
@@ -213,14 +233,15 @@ class RealtimeSignalsService {
       try {
         const supabase = getSupabase();
         
+        // 🔥 Atualizar código de apoiador
+        this.supporterCode = this.getSupporterCode();
+        
         // ⚡ Timeout REDUZIDO para 8 segundos (evitar travamento da UI)
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const supabaseAny = supabase as any;
-        const queryPromise = supabaseAny.from('active_signals')
-          .select('*')
-          .eq('is_active', true)
-          .order('position', { ascending: true })
-          .limit(3);
+        const queryPromise = supabaseAny.rpc('get_active_signals_with_code', {
+          p_supporter_code: this.supporterCode
+        });
         
         const timeoutPromise = new Promise((_, reject) => 
           setTimeout(() => reject(new Error(`Query timeout após 8s (tentativa ${attempt})`)), 8000)
@@ -312,65 +333,19 @@ class RealtimeSignalsService {
 
   /**
    * Configura subscription do Supabase Realtime
+   * 🔥 DESABILITADO: Sinais agora são gerados dinamicamente por código de apoiador
+   * Não precisamos mais escutar mudanças na tabela active_signals
    */
   private setupRealtimeSubscription(): void {
-    const supabase = getSupabase();
+    // 🔥 Realtime subscription desabilitada
+    // Os sinais são gerados dinamicamente baseados no código de apoiador
+    // e não vêm mais da tabela active_signals
     
-    // 🔥 CORREÇÃO DEFINITIVA: Remover canal SEM reconectar
-    if (this.channel) {
-      this.isIntentionalDisconnect = true;
-      
-      try {
-        // Remover canal silenciosamente
-        (supabase as SupabaseClient<Database>).removeChannel(this.channel);
-      } catch (e) {
-        // Ignorar erros
-      }
-      this.channel = null;
-      
-      // NÃO chamar setupRealtimeSubscription() recursivamente!
-      // Continuar criando novo canal abaixo
-    }
-    
-    // Resetar flag ANTES de criar novo canal
-    this.isIntentionalDisconnect = false;
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const supabaseAny = supabase as any;
-    
-    // Criar novo channel
-    this.channel = supabaseAny
-      .channel('active_signals_changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*', // INSERT, UPDATE, DELETE
-          schema: 'public',
-          table: 'active_signals'
-        },
-        (payload: RealtimePayload) => {
-          // Log removido para evitar spam no console
-          // console.log('📡 Realtime update recebido:', payload);
-          this.handleRealtimeUpdate(payload);
-        }
-      )
-      .subscribe((status: string) => {
-        if (status === 'SUBSCRIBED') {
-          // Realtime conectado
-        } else if (status === 'CHANNEL_ERROR') {
-          // Reconectar apenas se não for desconexão intencional (sem log para evitar spam)
-          if (!this.isIntentionalDisconnect) {
-            setTimeout(() => this.setupRealtimeSubscription(), 3000);
-          }
-        } else if (status === 'CLOSED') {
-          // NÃO reconectar se foi desconexão intencional (silencioso)
-          if (!this.isIntentionalDisconnect) {
-            setTimeout(() => this.setupRealtimeSubscription(), 3000);
-          }
-        }
-      });
+    // Manter atualização periódica via polling
+    // O startConnectionMonitor já faz isso
+    return;
   }
-  
+
   /**
    * ✅ CORREÇÃO 5: Verificação periódica de conexão Realtime
    * Garante que a conexão está ativa, reconecta se necessário
@@ -385,16 +360,7 @@ class RealtimeSignalsService {
       const now = Date.now();
       const timeSinceLastCheck = now - lastCheckTime;
       // Verificar conexão (silencioso para evitar spam)
-      if (!this.channel) {
-        this.setupRealtimeSubscription();
-      } else {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const channelState = (this.channel as any).state;
-        
-        if (channelState === 'closed' || channelState === 'errored') {
-          this.setupRealtimeSubscription();
-        }
-      }
+      // 🔥 Realtime desabilitado - apenas polling
       
       // Verificar se precisa rotacionar sinais baseado no horário
       if (this.signals.length > 0) {
@@ -493,9 +459,6 @@ class RealtimeSignalsService {
    * Trata inserção de novo sinal
    */
   private handleInsert(signal: ActiveSignal): void {
-    // Log removido para evitar spam no console
-    // console.log(`➕ Novo sinal na posição ${signal.position}:`, signal.symbol);
-    
     // Transformar sinal antes de adicionar
     const transformedSignal = this.transformSignal(signal);
     
@@ -537,9 +500,6 @@ class RealtimeSignalsService {
    * Trata remoção de sinal
    */
   private handleDelete(signal: ActiveSignal): void {
-    // Log removido para evitar spam no console
-    // console.log(`➖ Sinal removido - Posição ${signal.position}:`, signal.symbol);
-    
     // Remover da lista
     this.signals = this.signals.filter(s => s.id !== signal.id);
     

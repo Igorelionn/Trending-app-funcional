@@ -105,9 +105,9 @@ export function UserAvatar() {
       // Redimensionar a imagem antes de salvar (300x300 pixels)
       const resizedImageBlob = await resizeImage(file, 300, 300, 0.8);
       
-      // Gerar nome de arquivo único
+      // Gerar nome de arquivo único com ID do usuário
       const fileExt = file.name.split('.').pop();
-      const fileName = `avatar-${Date.now()}.${fileExt}`;
+      const fileName = `${userId}/avatar-${Date.now()}.${fileExt}`;
       
       // Verificar se o usuário está usando Supabase Storage ou armazenamento local
       let newAvatarUrl;

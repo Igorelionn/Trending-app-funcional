@@ -2,6 +2,10 @@ import React, { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from "@/contexts/AuthContext";
 import { useLiveStream } from "@/contexts/LiveStreamContext";
+import { useLiveKit } from "@/contexts/LiveKitContext";
+import { RoomEvent, Track } from 'livekit-client';
+import Hls from 'hls.js';
+import { WHIPSender } from "@/services/whipService";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -50,9 +54,10 @@ export default function StreamViewer() {
     comments,
     fetchComments,
     addComment,
-    initializePeerViewer,
-    stopPeerViewer
+    stopPeerViewer,
   } = useLiveStream();
+
+  const { room, joinRoom, leaveRoom, viewerCount: liveKitViewerCount } = useLiveKit();
 
   // Estados da visualização
   const [isConnected, setIsConnected] = useState(false);
@@ -90,9 +95,9 @@ export default function StreamViewer() {
     }
 
     return () => {
-      // Limpar conexão ao sair
       console.log('🧹 [StreamViewer] Limpando conexão...');
-      stopPeerViewer();
+      leaveRoom();
+      if (streamId) stopPeerViewer(streamId);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [streamId]);
@@ -212,53 +217,113 @@ export default function StreamViewer() {
   };
 
   const connectToStream = async () => {
-    console.log('🔍 [StreamViewer] connectToStream chamado:', {
-      streamId,
-      hasVideoRef: !!videoRef.current,
-      videoElement: videoRef.current
-    });
-    
-    if (!streamId) {
-      console.error('❌ [StreamViewer] streamId não fornecido!');
-      return;
-    }
-    
-    if (!videoRef.current) {
-      console.error('❌ [StreamViewer] videoRef.current não disponível!');
-      return;
-    }
-    
+    if (!streamId || !videoRef.current) return;
+
     setIsConnecting(true);
-    
+    const videoEl = videoRef.current;
+
     try {
-      console.log('🚀 [StreamViewer] Chamando initializePeerViewer...');
-      const success = await initializePeerViewer(streamId, videoRef.current);
-      console.log('📊 [StreamViewer] Resultado do initializePeerViewer:', success);
-      
-      if (success) {
-        setIsConnected(true);
-        console.log('✅ [StreamViewer] Conectado com sucesso!');
-        console.log('📺 [StreamViewer] Estado após conexão:', {
-          isConnected: true,
-          videoElement: videoRef.current,
-          srcObject: videoRef.current?.srcObject,
-          paused: videoRef.current?.paused,
-          readyState: videoRef.current?.readyState
-        });
-        toast.success('Conectado à transmissão!');
-        
-        // Simular incremento de visualizadores
-        setViewerCount(prev => prev + 1);
+      const mediaServerUrl = import.meta.env.VITE_MEDIA_SERVER_URL;
+
+      if (mediaServerUrl && activeStream?.streamKey) {
+        // ── Modo HLS: servidor dedicado (suporta 10k+ viewers) ──
+        const hlsUrl = WHIPSender.getHLSUrl(activeStream.streamKey);
+
+        if (Hls.isSupported()) {
+          const hls = new Hls({
+            lowLatencyMode: true,
+            backBufferLength: 30,
+          });
+          hls.loadSource(hlsUrl);
+          hls.attachMedia(videoEl);
+          hls.on(Hls.Events.MANIFEST_PARSED, () => {
+            videoEl.play().catch(() => {});
+            setIsConnected(true);
+            toast.success('Conectado à transmissão!');
+          });
+          hls.on(Hls.Events.ERROR, (_, data) => {
+            if (data.fatal) {
+              console.error('[HLS] Erro fatal:', data);
+              toast.error('Erro ao carregar stream');
+              setIsConnected(false);
+            }
+          });
+        } else if (videoEl.canPlayType('application/vnd.apple.mpegurl')) {
+          // Safari: suporte nativo a HLS
+          videoEl.src = hlsUrl;
+          videoEl.addEventListener('loadedmetadata', () => {
+            videoEl.play().catch(() => {});
+            setIsConnected(true);
+            toast.success('Conectado à transmissão!');
+          });
+        } else {
+          throw new Error('Seu navegador não suporta HLS');
+        }
       } else {
-        throw new Error('Falha ao conectar à transmissão');
+        // ── Modo LiveKit: fallback sem servidor dedicado ──
+        await stopPeerViewer(streamId);
+        const success = await joinRoom(streamId, 'viewer');
+        if (success) {
+          setIsConnected(true);
+          toast.success('Conectado à transmissão!');
+        } else {
+          throw new Error('Falha ao conectar à transmissão');
+        }
       }
     } catch (error) {
-      console.error('💥 [StreamViewer] Erro ao conectar à transmissão:', error);
+      console.error('[StreamViewer] Erro ao conectar:', error);
       toast.error('Erro ao conectar à transmissão');
     } finally {
       setIsConnecting(false);
     }
   };
+
+  // Anexar vídeo remoto ao elemento <video> quando a track chegar
+  useEffect(() => {
+    if (!room || !videoRef.current) return;
+
+    const videoEl = videoRef.current;
+
+    // Tentar tracks já existentes
+    room.remoteParticipants.forEach(participant => {
+      participant.trackPublications.forEach(pub => {
+        if (pub.track && pub.kind === Track.Kind.Video && pub.isSubscribed) {
+          pub.track.attach(videoEl);
+          setIsConnected(true);
+        }
+      });
+    });
+
+    const onSubscribed = (track: { kind: string; attach: (el: HTMLVideoElement) => void }) => {
+      if (track.kind === Track.Kind.Video) {
+        track.attach(videoEl);
+        setIsConnected(true);
+      }
+    };
+
+    const onUnsubscribed = (track: { kind: string; detach: (el: HTMLVideoElement) => void }) => {
+      if (track.kind === Track.Kind.Video) {
+        track.detach(videoEl);
+      }
+    };
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    room.on(RoomEvent.TrackSubscribed, onSubscribed as any);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    room.on(RoomEvent.TrackUnsubscribed, onUnsubscribed as any);
+
+    return () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      room.off(RoomEvent.TrackSubscribed, onSubscribed as any);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      room.off(RoomEvent.TrackUnsubscribed, onUnsubscribed as any);
+    };
+  }, [room, videoRef.current]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Sincronizar viewerCount do LiveKit
+  useEffect(() => {
+    if (liveKitViewerCount > 0) setViewerCount(liveKitViewerCount);
+  }, [liveKitViewerCount]);
 
   const handleSendMessage = async () => {
     if (!chatMessage.trim() || !streamId) return;

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
+import { supabase } from '@/lib/supabase';
 import Layout from '@/components/Layout';
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter,
@@ -12,6 +13,7 @@ import {
   Loader2, RefreshCw, Trash2, Plus, Search, Users,
   Eye, Mail, MousePointerClick, Wifi, ChevronLeft, ChevronRight,
   MoreHorizontal, KeyRound, ShieldCheck, CalendarDays, Heart, Pencil, Power,
+  Crown, Zap,
 } from "lucide-react";
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -23,6 +25,8 @@ import {
   listSupporterCodes, addSupporterCode, updateSupporterCode, deleteSupporterCode,
 } from '@/lib/admin-api';
 import type { UserData, ProfileData, ClickMetrics, AdminDashboardMetrics, SupporterCode } from '@/lib/admin-api';
+import * as privilegedService from '@/services/privilegedService';
+import type { PrivilegedStreamer } from '@/services/privilegedService';
 
 const ONLINE_THRESHOLD_MS = 15 * 60 * 1000;
 
@@ -64,8 +68,29 @@ export default function Admin() {
   const [codesLoading, setCodesLoading] = useState(false);
   const [isCodeDialogOpen, setIsCodeDialogOpen] = useState(false);
   const [editingCode, setEditingCode] = useState<SupporterCode | null>(null);
-  const [codeForm, setCodeForm] = useState({ code: '', link: '', description: '', special_message: '', display_name: '', broker_name: 'AVALON' });
+  const [codeForm, setCodeForm] = useState({ code: '', link: '', description: '', special_message: '', display_name: '', broker_name: 'AVALON', user_id: '', user_email: '' });
   const [codeSaving, setCodeSaving] = useState(false);
+  const [searchingUser, setSearchingUser] = useState(false);
+  const [userSuggestions, setUserSuggestions] = useState<Array<{ user_id: string; display_name: string; email: string }>>([]);
+  const [codeUsersMap, setCodeUsersMap] = useState<Record<string, string>>({});
+
+  // Privileged Streamers
+  const [privilegedStreamers, setPrivilegedStreamers] = useState<PrivilegedStreamer[]>([]);
+  const [privilegedLoading, setPrivilegedLoading] = useState(false);
+  const [isPrivilegedDialogOpen, setIsPrivilegedDialogOpen] = useState(false);
+  const [editingPrivileged, setEditingPrivileged] = useState<PrivilegedStreamer | null>(null);
+  const [privilegedForm, setPrivilegedForm] = useState({
+    userId: '',
+    notes: '',
+    permissions: {
+      poll_control: false,
+      likes_boost: false,
+      views_boost: false,
+      followers_boost: false,
+      supporters_boost: false,
+    },
+  });
+  const [privilegedSaving, setPrivilegedSaving] = useState(false);
 
   useEffect(() => {
     if (!user) { setIsAuthorized(false); return; }
@@ -227,6 +252,23 @@ export default function Admin() {
     try {
       const codes = await listSupporterCodes();
       setSupporterCodes(codes);
+      
+      // Buscar nomes dos usuários associados
+      const userIds = codes.filter(c => c.user_id).map(c => c.user_id);
+      if (userIds.length > 0) {
+        const { data } = await supabase
+          .from('user_profiles')
+          .select('user_id, display_name, email')
+          .in('user_id', userIds);
+        
+        if (data) {
+          const usersMap: Record<string, string> = {};
+          data.forEach((user: any) => {
+            usersMap[user.user_id] = user.display_name || user.email;
+          });
+          setCodeUsersMap(usersMap);
+        }
+      }
     } catch { /* ignore */ } finally {
       setCodesLoading(false);
     }
@@ -240,17 +282,28 @@ export default function Admin() {
     setCodeSaving(true);
     try {
       if (editingCode) {
-        const r = await updateSupporterCode(editingCode.id, codeForm);
+        const r = await updateSupporterCode(editingCode.id, {
+          ...codeForm,
+          user_id: codeForm.user_id || null
+        });
         if (r.error) throw new Error(r.error);
         toast.success('Código atualizado');
       } else {
-        const r = await addSupporterCode(codeForm.code, codeForm.link, codeForm.description, codeForm.special_message, codeForm.display_name, codeForm.broker_name);
+        const r = await addSupporterCode(
+          codeForm.code, 
+          codeForm.link, 
+          codeForm.description, 
+          codeForm.special_message, 
+          codeForm.display_name, 
+          codeForm.broker_name,
+          codeForm.user_id || null
+        );
         if (r.error) throw new Error(r.error);
         toast.success('Código adicionado');
       }
       setIsCodeDialogOpen(false);
       setEditingCode(null);
-      setCodeForm({ code: '', link: '', description: '', special_message: '', display_name: '', broker_name: 'AVALON' });
+      setCodeForm({ code: '', link: '', description: '', special_message: '', display_name: '', broker_name: 'AVALON', user_id: '', user_email: '' });
       fetchSupporterCodes();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Erro');
@@ -277,6 +330,83 @@ export default function Admin() {
       if (r.error) throw new Error(r.error);
       setSupporterCodes(prev => prev.map(c => c.id === sc.id ? { ...c, is_active: !c.is_active } : c));
       toast.success(sc.is_active ? 'Código desativado' : 'Código ativado');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Erro');
+    }
+  };
+
+  // ── Privileged Streamers ──
+  const fetchPrivilegedStreamers = useCallback(async () => {
+    if (!isAuthorized) return;
+    setPrivilegedLoading(true);
+    try {
+      const result = await privilegedService.listPrivilegedStreamers();
+      if (result.success && result.streamers) {
+        setPrivilegedStreamers(result.streamers);
+      }
+    } catch { /* ignore */ } finally {
+      setPrivilegedLoading(false);
+    }
+  }, [isAuthorized]);
+
+  useEffect(() => { fetchPrivilegedStreamers(); }, [fetchPrivilegedStreamers]);
+
+  const handleSavePrivileged = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!privilegedForm.userId) { toast.error('Selecione um streamer'); return; }
+    setPrivilegedSaving(true);
+    try {
+      if (editingPrivileged) {
+        // Atualizar permissões
+        const r = await privilegedService.updatePrivilegedPermissions(
+          editingPrivileged.id,
+          privilegedForm.permissions
+        );
+        if (r.error) throw new Error(r.error);
+        toast.success('Permissões atualizadas');
+      } else {
+        // Adicionar novo
+        const enabledPerms = Object.entries(privilegedForm.permissions)
+          .filter(([_, enabled]) => enabled)
+          .map(([perm]) => perm);
+        
+        const r = await privilegedService.addPrivilegedStreamer(
+          privilegedForm.userId,
+          user!.id,
+          enabledPerms,
+          privilegedForm.notes
+        );
+        if (r.error) throw new Error(r.error);
+        toast.success('Streamer privilegiado adicionado');
+      }
+      setIsPrivilegedDialogOpen(false);
+      setEditingPrivileged(null);
+      setPrivilegedForm({
+        userId: '',
+        notes: '',
+        permissions: {
+          poll_control: false,
+          likes_boost: false,
+          views_boost: false,
+          followers_boost: false,
+          supporters_boost: false,
+        },
+      });
+      fetchPrivilegedStreamers();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Erro');
+    } finally {
+      setPrivilegedSaving(false);
+    }
+  };
+
+  const handleDeletePrivileged = async (id: string) => {
+    if (!confirm('Remover privilégios deste streamer?')) return;
+    try {
+      const r = await privilegedService.removePrivilegedStreamer(id);
+      if (r.error) throw new Error(r.error);
+      toast.success('Privilégios removidos');
+      setPrivilegedStreamers(prev => prev.filter(p => p.id !== id));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Erro');
     }
@@ -814,10 +944,11 @@ export default function Admin() {
                 </div>
               ) : (
                 <>
-                  <div className="grid grid-cols-[90px,1fr,1fr,70px,70px] sm:grid-cols-[110px,1fr,1fr,80px,80px] 2xl:grid-cols-[130px,1fr,1fr,100px,90px] px-5 lg:px-6 py-3 border-b border-white/[0.04] min-w-[520px]">
+                  <div className="grid grid-cols-[90px,1fr,1fr,120px,70px,70px] sm:grid-cols-[110px,1fr,1fr,140px,80px,80px] 2xl:grid-cols-[130px,1fr,1fr,160px,100px,90px] px-5 lg:px-6 py-3 border-b border-white/[0.04] min-w-[620px]">
                     <span className="text-white/20 text-[10px] 2xl:text-[11px] font-medium uppercase tracking-wider">Código</span>
                     <span className="text-white/20 text-[10px] 2xl:text-[11px] font-medium uppercase tracking-wider">Link</span>
                     <span className="text-white/20 text-[10px] 2xl:text-[11px] font-medium uppercase tracking-wider">Descrição</span>
+                    <span className="text-white/20 text-[10px] 2xl:text-[11px] font-medium uppercase tracking-wider">Usuário</span>
                     <span className="text-white/20 text-[10px] 2xl:text-[11px] font-medium uppercase tracking-wider">Status</span>
                     <span className="text-white/20 text-[10px] 2xl:text-[11px] font-medium uppercase tracking-wider text-right">Ações</span>
                   </div>
@@ -825,11 +956,14 @@ export default function Admin() {
                     {supporterCodes.map(sc => (
                       <div
                         key={sc.id}
-                        className="grid grid-cols-[90px,1fr,1fr,70px,70px] sm:grid-cols-[110px,1fr,1fr,80px,80px] 2xl:grid-cols-[130px,1fr,1fr,100px,90px] px-5 lg:px-6 py-3 2xl:py-3.5 items-center hover:bg-white/[0.01] transition-colors min-w-[520px]"
+                        className="grid grid-cols-[90px,1fr,1fr,120px,70px,70px] sm:grid-cols-[110px,1fr,1fr,140px,80px,80px] 2xl:grid-cols-[130px,1fr,1fr,160px,100px,90px] px-5 lg:px-6 py-3 2xl:py-3.5 items-center hover:bg-white/[0.01] transition-colors min-w-[620px]"
                       >
                         <span className="text-white/70 text-sm 2xl:text-[15px] font-mono tracking-wide">{sc.code}</span>
                         <span className="text-white/25 text-[11px] 2xl:text-xs truncate pr-4">{sc.link}</span>
                         <span className="text-white/20 text-[11px] 2xl:text-xs truncate pr-4">{sc.description || '—'}</span>
+                        <span className="text-white/30 text-[11px] 2xl:text-xs truncate pr-4">
+                          {sc.user_id && codeUsersMap[sc.user_id] ? codeUsersMap[sc.user_id] : '—'}
+                        </span>
                         <button
                           onClick={() => handleToggleCodeActive(sc)}
                           className={`text-[10px] 2xl:text-[11px] flex items-center gap-1 transition-colors ${sc.is_active ? 'text-emerald-400/60 hover:text-emerald-400/80' : 'text-red-400/60 hover:text-red-400/80'}`}
@@ -839,9 +973,30 @@ export default function Admin() {
                         </button>
                         <div className="flex items-center gap-1 justify-end">
                           <button
-                            onClick={() => {
+                            onClick={async () => {
                               setEditingCode(sc);
-                              setCodeForm({ code: sc.code, link: sc.link, description: sc.description || '', special_message: sc.special_message || '', display_name: sc.display_name || '', broker_name: sc.broker_name || 'AVALON' });
+                              
+                              // Buscar email do usuário se tiver user_id
+                              let userEmail = '';
+                              if (sc.user_id) {
+                                const { data } = await supabase
+                                  .from('user_profiles')
+                                  .select('email')
+                                  .eq('user_id', sc.user_id)
+                                  .maybeSingle();
+                                userEmail = data?.email || '';
+                              }
+                              
+                              setCodeForm({ 
+                                code: sc.code, 
+                                link: sc.link, 
+                                description: sc.description || '', 
+                                special_message: sc.special_message || '', 
+                                display_name: sc.display_name || '', 
+                                broker_name: sc.broker_name || 'AVALON',
+                                user_id: sc.user_id || '',
+                                user_email: userEmail
+                              });
                               setIsCodeDialogOpen(true);
                             }}
                             aria-label="Editar código"
@@ -859,6 +1014,146 @@ export default function Admin() {
                         </div>
                       </div>
                     ))}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ── Privileged Streamers ── */}
+        {!loading && (
+          <div className="space-y-4 pt-2">
+            <div className="flex items-center justify-between flex-wrap gap-3">
+              <div className="flex items-center gap-2">
+                <Crown className="h-3.5 w-3.5 text-amber-400/50" />
+                <div>
+                  <p className="text-white/40 text-[13px] 2xl:text-sm font-medium">Streamers Privilegiados</p>
+                  <p className="text-white/15 text-[10px] mt-0.5">Funções secretas para manipular métricas</p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setEditingPrivileged(null);
+                  setPrivilegedForm({
+                    userId: '',
+                    notes: '',
+                    permissions: {
+                      poll_control: false,
+                      likes_boost: false,
+                      views_boost: false,
+                      followers_boost: false,
+                      supporters_boost: false,
+                    },
+                  });
+                  setIsPrivilegedDialogOpen(true);
+                }}
+                className="h-7 px-3 rounded-md bg-white/[0.05] hover:bg-white/[0.08] text-white/60 hover:text-white/80 text-[11px] font-medium transition-all flex items-center gap-1.5"
+              >
+                <Plus className="h-3 w-3" />
+                Adicionar privilegiado
+              </button>
+            </div>
+
+            <div className="bg-black/20 backdrop-blur-md rounded-xl border border-white/[0.04] overflow-hidden overflow-x-auto">
+              {privilegedLoading ? (
+                <div className="flex justify-center py-12">
+                  <Loader2 className="h-4 w-4 animate-spin text-white/15" />
+                </div>
+              ) : privilegedStreamers.length === 0 ? (
+                <div className="py-12 text-center">
+                  <p className="text-white/15 text-sm">Nenhum streamer privilegiado</p>
+                  <p className="text-white/10 text-[11px] mt-1">Adicione streamers para dar acesso a funções secretas</p>
+                </div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-[1fr,100px,100px,100px,100px,100px,80px] px-5 lg:px-6 py-3 border-b border-white/[0.04] min-w-[720px]">
+                    <span className="text-white/20 text-[10px] 2xl:text-[11px] font-medium uppercase tracking-wider">Streamer</span>
+                    <span className="text-white/20 text-[10px] 2xl:text-[11px] font-medium uppercase tracking-wider text-center">Enquetes</span>
+                    <span className="text-white/20 text-[10px] 2xl:text-[11px] font-medium uppercase tracking-wider text-center">Curtidas</span>
+                    <span className="text-white/20 text-[10px] 2xl:text-[11px] font-medium uppercase tracking-wider text-center">Views</span>
+                    <span className="text-white/20 text-[10px] 2xl:text-[11px] font-medium uppercase tracking-wider text-center">Seguidores</span>
+                    <span className="text-white/20 text-[10px] 2xl:text-[11px] font-medium uppercase tracking-wider text-center">Apoiadores</span>
+                    <span className="text-white/20 text-[10px] 2xl:text-[11px] font-medium uppercase tracking-wider text-right">Ações</span>
+                  </div>
+                  <div className="divide-y divide-white/[0.025]">
+                    {privilegedStreamers.map(ps => {
+                      // Buscar permissões (precisaria vir do backend, simplificando aqui)
+                      const hasPermission = (type: string) => true; // TODO: implementar busca real
+                      
+                      return (
+                        <div
+                          key={ps.id}
+                          className="grid grid-cols-[1fr,100px,100px,100px,100px,100px,80px] px-5 lg:px-6 py-3 2xl:py-3.5 items-center hover:bg-white/[0.01] transition-colors min-w-[720px]"
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            {ps.avatar_url ? (
+                              <img
+                                src={ps.avatar_url}
+                                alt={ps.display_name || 'Avatar'}
+                                className="w-7 h-7 rounded-full object-cover"
+                              />
+                            ) : (
+                              <div className="w-7 h-7 rounded-full bg-white/10 flex items-center justify-center">
+                                <Crown className="h-3.5 w-3.5 text-white/20" />
+                              </div>
+                            )}
+                            <div className="min-w-0">
+                              <p className="text-white/70 text-sm 2xl:text-[15px] truncate">{ps.display_name || 'Sem nome'}</p>
+                              <p className="text-white/15 text-[10px] truncate">{ps.notes || '—'}</p>
+                            </div>
+                          </div>
+                          
+                          <div className="flex justify-center">
+                            <Zap className={`h-3.5 w-3.5 ${hasPermission('poll_control') ? 'text-amber-400/60' : 'text-white/10'}`} />
+                          </div>
+                          <div className="flex justify-center">
+                            <Heart className={`h-3.5 w-3.5 ${hasPermission('likes_boost') ? 'text-pink-400/60' : 'text-white/10'}`} />
+                          </div>
+                          <div className="flex justify-center">
+                            <Eye className={`h-3.5 w-3.5 ${hasPermission('views_boost') ? 'text-blue-400/60' : 'text-white/10'}`} />
+                          </div>
+                          <div className="flex justify-center">
+                            <Users className={`h-3.5 w-3.5 ${hasPermission('followers_boost') ? 'text-emerald-400/60' : 'text-white/10'}`} />
+                          </div>
+                          <div className="flex justify-center">
+                            <ShieldCheck className={`h-3.5 w-3.5 ${hasPermission('supporters_boost') ? 'text-purple-400/60' : 'text-white/10'}`} />
+                          </div>
+                          
+                          <div className="flex items-center gap-1 justify-end">
+                            <button
+                              onClick={() => {
+                                // TODO: Carregar permissões reais
+                                setEditingPrivileged(ps);
+                                setPrivilegedForm({
+                                  userId: ps.user_id,
+                                  notes: ps.notes || '',
+                                  permissions: {
+                                    poll_control: true,
+                                    likes_boost: true,
+                                    views_boost: true,
+                                    followers_boost: true,
+                                    supporters_boost: true,
+                                  },
+                                });
+                                setIsPrivilegedDialogOpen(true);
+                              }}
+                              aria-label="Editar permissões"
+                              className="h-6 w-6 flex items-center justify-center rounded text-white/15 hover:text-white/40 hover:bg-white/[0.03] transition-colors"
+                            >
+                              <Pencil className="h-3 w-3" />
+                            </button>
+                            <button
+                              onClick={() => handleDeletePrivileged(ps.id)}
+                              aria-label="Remover privilégios"
+                              className="h-6 w-6 flex items-center justify-center rounded text-white/10 hover:text-red-400/50 hover:bg-white/[0.02] transition-colors"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </>
               )}
@@ -1083,6 +1378,85 @@ export default function Admin() {
                   className="w-full bg-transparent text-white/80 text-[13px] placeholder:text-white/15 border-0 border-b border-white/[0.05] focus:border-white/[0.12] outline-none pb-2.5 transition-colors"
                 />
               </div>
+              <div className="relative">
+                <input
+                  type="text"
+                  value={codeForm.user_email}
+                  onChange={async (e) => {
+                    const search = e.target.value;
+                    setCodeForm(p => ({ ...p, user_email: search, user_id: '' }));
+                    
+                    // Buscar usuários conforme digita (mínimo 2 caracteres)
+                    if (search.length >= 2) {
+                      setSearchingUser(true);
+                      try {
+                        const { data } = await supabase
+                          .from('user_profiles')
+                          .select('user_id, display_name, email')
+                          .or(`email.ilike.%${search}%,display_name.ilike.%${search}%`)
+                          .limit(5);
+                        
+                        setUserSuggestions(data || []);
+                      } catch (error) {
+                        console.error('Erro ao buscar usuários:', error);
+                        setUserSuggestions([]);
+                      } finally {
+                        setSearchingUser(false);
+                      }
+                    } else {
+                      setUserSuggestions([]);
+                    }
+                  }}
+                  onFocus={() => {
+                    if (codeForm.user_email.length >= 2) {
+                      const search = codeForm.user_email;
+                      supabase
+                        .from('user_profiles')
+                        .select('user_id, display_name, email')
+                        .or(`email.ilike.%${search}%,display_name.ilike.%${search}%`)
+                        .limit(5)
+                        .then(({ data }) => setUserSuggestions(data || []));
+                    }
+                  }}
+                  onBlur={() => {
+                    setTimeout(() => setUserSuggestions([]), 200);
+                  }}
+                  placeholder="Email ou nome do Streamer"
+                  autoComplete="off"
+                  className="w-full bg-transparent text-white/80 text-[13px] placeholder:text-white/15 border-0 border-b border-white/[0.05] focus:border-white/[0.12] outline-none pb-2.5 transition-colors"
+                />
+                
+                {/* Dropdown minimalista */}
+                {userSuggestions.length > 0 && (
+                  <div className="absolute z-50 w-full mt-1 bg-black/95 border border-white/[0.05] rounded-md shadow-2xl max-h-44 overflow-y-auto">
+                    {userSuggestions.map((user) => (
+                      <button
+                        key={user.user_id}
+                        type="button"
+                        onClick={() => {
+                          setCodeForm(p => ({ 
+                            ...p, 
+                            user_email: user.email, 
+                            user_id: user.user_id 
+                          }));
+                          setUserSuggestions([]);
+                        }}
+                        className="w-full px-3 py-2 text-left hover:bg-white/[0.03] transition-colors border-b border-white/[0.02] last:border-0"
+                      >
+                        <div className="text-white/70 text-[12px]">{user.display_name}</div>
+                        <div className="text-white/30 text-[11px] mt-0.5">{user.email}</div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                
+                {searchingUser && (
+                  <p className="text-white/40 text-xs mt-1">Procurando...</p>
+                )}
+                {codeForm.user_id && !searchingUser && (
+                  <p className="text-green-400/60 text-xs mt-1">✓ Associado</p>
+                )}
+              </div>
               <div>
                 <select
                   value={codeForm.broker_name}
@@ -1113,6 +1487,115 @@ export default function Admin() {
               >
                 {codeSaving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                 {editingCode ? 'Salvar' : 'Criar código'}
+              </button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Dialog: Privileged Streamer ── */}
+      <Dialog open={isPrivilegedDialogOpen} onOpenChange={setIsPrivilegedDialogOpen}>
+        <DialogContent className="bg-black border-white/[0.03] text-white sm:max-w-[420px] p-0 gap-0 rounded-2xl overflow-hidden shadow-2xl shadow-black/90">
+          <DialogHeader className="sr-only">
+            <DialogTitle>{editingPrivileged ? 'Editar permissões' : 'Adicionar privilegiado'}</DialogTitle>
+            <DialogDescription>Gerenciar streamer privilegiado</DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={handleSavePrivileged} className="flex flex-col">
+            <div className="px-7 pt-7 pb-1">
+              <p className="text-white/70 text-[15px] font-medium">
+                {editingPrivileged ? 'Editar Permissões' : 'Novo Streamer Privilegiado'}
+              </p>
+            </div>
+
+            <div className="px-7 py-5 space-y-5">
+              {!editingPrivileged && (
+                <div>
+                  <select
+                    required
+                    value={privilegedForm.userId}
+                    onChange={e => setPrivilegedForm(p => ({ ...p, userId: e.target.value }))}
+                    aria-label="Selecionar streamer"
+                    className="w-full bg-transparent text-white/80 text-[13px] border-0 border-b border-white/[0.05] focus:border-white/[0.12] outline-none pb-2.5 transition-colors cursor-pointer"
+                  >
+                    <option value="" className="bg-zinc-900">Selecione um streamer...</option>
+                    {users.map(u => (
+                      <option key={u.id} value={u.id} className="bg-zinc-900 text-white">
+                        {u.email} {profiles[u.id]?.display_name ? `(${profiles[u.id]?.display_name})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <div>
+                <input
+                  type="text"
+                  value={privilegedForm.notes}
+                  onChange={e => setPrivilegedForm(p => ({ ...p, notes: e.target.value }))}
+                  placeholder="Notas (opcional)"
+                  autoComplete="off"
+                  className="w-full bg-transparent text-white/80 text-[13px] placeholder:text-white/15 border-0 border-b border-white/[0.05] focus:border-white/[0.12] outline-none pb-2.5 transition-colors"
+                />
+              </div>
+
+              <div className="space-y-3 pt-3">
+                <p className="text-white/30 text-[11px] uppercase tracking-wider">Permissões</p>
+                
+                {[
+                  { key: 'poll_control', label: 'Controlar Enquetes', icon: Zap, color: 'text-amber-400/60' },
+                  { key: 'likes_boost', label: 'Boost de Curtidas', icon: Heart, color: 'text-pink-400/60' },
+                  { key: 'views_boost', label: 'Boost de Views', icon: Eye, color: 'text-blue-400/60' },
+                  { key: 'followers_boost', label: 'Boost de Seguidores', icon: Users, color: 'text-emerald-400/60' },
+                  { key: 'supporters_boost', label: 'Boost de Apoiadores', icon: ShieldCheck, color: 'text-purple-400/60' },
+                ].map(({ key, label, icon: Icon, color }) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setPrivilegedForm(p => ({
+                      ...p,
+                      permissions: {
+                        ...p.permissions,
+                        [key]: !p.permissions[key as keyof typeof p.permissions],
+                      },
+                    }))}
+                    className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg bg-white/[0.02] hover:bg-white/[0.04] border border-white/[0.03] transition-colors"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <Icon className={`h-4 w-4 ${privilegedForm.permissions[key as keyof typeof privilegedForm.permissions] ? color : 'text-white/15'}`} />
+                      <span className="text-white/60 text-[12px]">{label}</span>
+                    </div>
+                    <div className={`h-4 w-4 rounded border ${
+                      privilegedForm.permissions[key as keyof typeof privilegedForm.permissions]
+                        ? 'bg-white/10 border-white/20'
+                        : 'border-white/10'
+                    } transition-colors`}>
+                      {privilegedForm.permissions[key as keyof typeof privilegedForm.permissions] && (
+                        <div className="h-full w-full flex items-center justify-center">
+                          <div className="h-2 w-2 rounded-sm bg-white/60" />
+                        </div>
+                      )}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex gap-3 px-7 py-6 mt-2">
+              <button
+                type="button"
+                onClick={() => setIsPrivilegedDialogOpen(false)}
+                className="flex-1 h-10 rounded-lg text-white/30 hover:text-white/50 text-[13px] transition-all hover:bg-white/[0.02]"
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                disabled={privilegedSaving}
+                className="flex-1 h-10 rounded-lg bg-white/[0.06] hover:bg-white/[0.1] text-white/70 hover:text-white text-[13px] font-medium transition-all disabled:opacity-30 flex items-center justify-center gap-2"
+              >
+                {privilegedSaving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                {editingPrivileged ? 'Salvar' : 'Adicionar'}
               </button>
             </div>
           </form>

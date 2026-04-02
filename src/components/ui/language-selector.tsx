@@ -80,7 +80,7 @@ const languages: LanguageOption[] = [
 ];
 
 export interface LanguageSelectorProps {
-  variant?: 'default' | 'minimal' | 'auth';
+  variant?: 'default' | 'minimal' | 'auth' | 'compact';
   showFlag?: boolean;
 }
 
@@ -279,6 +279,199 @@ export function LanguageSelector({ variant = 'default', showFlag = true }: Langu
           ))}
         </DropdownMenuContent>
       </DropdownMenu>
+    );
+  }
+
+  if (variant === 'compact') {
+    return (
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogTrigger asChild>
+          <motion.button
+            className="group relative h-9 w-9 flex items-center justify-center rounded-full bg-black/20 hover:bg-black/40 border border-white/[0.05] hover:border-white/[0.15] transition-all duration-300 backdrop-blur-sm shadow-lg hover:shadow-xl cursor-pointer"
+            whileHover={{ scale: 1.08 }}
+            whileTap={{ scale: 0.92 }}
+          >
+            <motion.span 
+              className="text-lg leading-none block"
+              whileHover={{ scale: 1.1 }}
+              transition={{ duration: 0.2 }}
+            >
+              {currentLanguage.icon}
+            </motion.span>
+            
+            {/* Efeito de brilho sutil ao passar o mouse */}
+            <motion.div
+              className="absolute inset-0 rounded-full bg-gradient-to-br from-white/[0.05] to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"
+              initial={{ scale: 0.8 }}
+              whileHover={{ scale: 1 }}
+            />
+          </motion.button>
+        </DialogTrigger>
+        
+        <DialogContent className="max-w-3xl p-0 bg-black/80 backdrop-blur-xl border border-white/5 shadow-2xl rounded-xl overflow-hidden">
+          <div className="grid grid-cols-5 h-[500px]">
+            {/* Área de pré-visualização à esquerda */}
+            <div className="col-span-2 relative overflow-hidden">
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={selectedPreview}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.5 }}
+                  className="absolute inset-0"
+                >
+                  {/* Imagem do marco do país */}
+                  <div className="absolute inset-0 bg-gradient-to-b from-black/50 via-black/70 to-black/95 z-10" />
+                  <motion.img 
+                    initial={{ scale: 1.05 }}
+                    animate={{ scale: 1 }}
+                    transition={{ duration: 1.5 }}
+                    src={languages.find(l => l.code === selectedPreview)?.landmark}
+                    alt={languages.find(l => l.code === selectedPreview)?.name}
+                    className="w-full h-full object-cover object-center filter brightness-75"
+                  />
+                  
+                  {/* Informações do idioma destacado */}
+                  <div className="absolute bottom-0 left-0 right-0 p-6 z-20">
+                    <div className="flex items-center gap-3 mb-3">
+                      <div className="relative overflow-hidden rounded-md shadow-lg border border-white/10 h-10">
+                        <img 
+                          src={languages.find(l => l.code === selectedPreview)?.flag} 
+                          alt={languages.find(l => l.code === selectedPreview)?.name}
+                          className="h-full w-auto object-cover"
+                        />
+                      </div>
+                      <h3 className="text-xl font-semibold text-white/90">
+                        {languages.find(l => l.code === selectedPreview)?.name}
+                      </h3>
+                    </div>
+                    <p className="text-white/70 text-sm mb-4">
+                      {languages.find(l => l.code === selectedPreview)?.greeting}
+                    </p>
+                    
+                    {/* Botão para selecionar idioma */}
+                    {selectedPreview !== language && (
+                      <motion.div 
+                        initial={{ y: 20, opacity: 0 }}
+                        animate={{ y: 0, opacity: 1 }}
+                        transition={{ delay: 0.2 }}
+                      >
+                        <Button 
+                          className="bg-black/50 hover:bg-black/70 text-white/90 border border-white/10 backdrop-blur-sm"
+                          onClick={() => handleLanguageChange(selectedPreview)}
+                        >
+                          {selectedPreview === 'pt' ? 'Selecionar' : 
+                           selectedPreview === 'en' ? 'Select' : 
+                           selectedPreview === 'es' ? 'Seleccionar' : 'Select'} {languages.find(l => l.code === selectedPreview)?.name}
+                        </Button>
+                      </motion.div>
+                    )}
+                    
+                    {/* Indicador de selecionado */}
+                    {selectedPreview === language && (
+                      <div className="flex items-center gap-2 bg-black/50 text-green-400/90 py-2 px-3 rounded-lg border border-green-500/20 backdrop-blur-sm">
+                        <Check className="h-4 w-4" />
+                        <span className="text-sm">
+                          {language === 'pt' ? 'Idioma atual' : 
+                           language === 'en' ? 'Current language' : 
+                           language === 'es' ? 'Idioma actual' : 'Current language'}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </motion.div>
+              </AnimatePresence>
+            </div>
+            
+            {/* Lista de idiomas à direita */}
+            <div className="col-span-3 p-6 overflow-auto bg-black/30 backdrop-blur-sm">
+              <h2 className="text-base font-medium text-white/90 mb-6 flex items-center gap-2 border-b border-white/10 pb-3">
+                <span>{getLanguageText(language)}</span>
+              </h2>
+              
+              <div className="grid grid-cols-1 gap-3">
+                {languages.map((lang) => (
+                  <motion.div
+                    key={lang.code}
+                    whileHover={{ borderColor: "rgba(255,255,255,0.2)" }}
+                    transition={{ duration: 0.2 }}
+                    className={cn(
+                      "group cursor-pointer rounded-lg overflow-hidden border border-transparent",
+                      language === lang.code ? "ring-1 ring-white/10" : ""
+                    )}
+                    onClick={() => handleLanguageChange(lang.code)}
+                    onMouseEnter={() => {
+                      setHoveredLanguage(lang.code);
+                      setSelectedPreview(lang.code);
+                    }}
+                    onMouseLeave={() => {
+                      setHoveredLanguage(null);
+                    }}
+                  >
+                    <div className={cn(
+                      "relative p-4 transition-all duration-300",
+                      "bg-black/60 hover:bg-black/80"
+                    )}>
+                      <div className="flex items-center gap-4 relative z-10">
+                        {/* Flag com sombra sutil */}
+                        <div className="relative w-16 h-12 overflow-hidden rounded shadow-md transition-shadow duration-300 group-hover:shadow-lg flex-shrink-0">
+                          <img 
+                            src={lang.flag} 
+                            alt={lang.name} 
+                            className="w-full h-full object-cover"
+                          />
+                          <div className="absolute inset-0 border border-white/5 group-hover:border-white/10 transition-all duration-300"></div>
+                        </div>
+                        
+                        {/* Informações do idioma */}
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-1">
+                            <h3 className="font-medium text-white/90 group-hover:text-white transition-colors duration-300">
+                              {lang.name}
+                            </h3>
+                            {language === lang.code && (
+                              <div className="flex items-center gap-1 bg-black/50 text-green-400/90 px-2 py-0.5 rounded-full text-xs">
+                                <Check className="h-3 w-3" />
+                                <span>
+                                  {language === 'pt' ? 'Atual' : 
+                                   language === 'en' ? 'Current' : 
+                                   language === 'es' ? 'Actual' : 'Current'}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm text-white/60 group-hover:text-white/80 transition-colors duration-300">
+                              {lang.nativeName}
+                            </span>
+                          </div>
+                        </div>
+                        
+                        {/* Indicador de seleção */}
+                        <div className={cn(
+                          "h-8 w-8 rounded-full flex items-center justify-center transition-all duration-300 flex-shrink-0",
+                          hoveredLanguage === lang.code || language === lang.code
+                            ? "bg-black/70" : "bg-black/50"
+                        )}>
+                          {language === lang.code ? (
+                            <Check className="h-4 w-4 text-white/90" />
+                          ) : (
+                            <ArrowRight className={cn(
+                              "h-4 w-4 transition-transform duration-300",
+                              hoveredLanguage === lang.code ? "translate-x-0.5 text-white/90" : "text-white/50"
+                            )} />
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </motion.div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     );
   }
 

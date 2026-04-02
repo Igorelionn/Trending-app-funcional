@@ -54,6 +54,10 @@ export const EnhancedMinimalChat: React.FC<EnhancedMinimalChatProps> = ({
   // Verificar se pode moderar
   useEffect(() => {
     const checkModeration = async () => {
+      if (!streamId) {
+        setCanMod(false);
+        return;
+      }
       const canMod = await canModerate(streamId);
       setCanMod(canMod);
     };

@@ -140,6 +140,9 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
   // ✅ Set para rastrear notificações recentes e evitar duplicatas
   const recentNotificationsRef = React.useRef<Set<string>>(new Set());
   
+  // ✅ Map para rastrear timeouts pendentes de notificações (debounce)
+  const pendingNotificationsRef = React.useRef<Map<string, NodeJS.Timeout>>(new Map());
+  
   // Verificar permissão inicial
   useEffect(() => {
     setHasPermission(isNotificationPermissionGranted());

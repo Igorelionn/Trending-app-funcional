@@ -1,17 +1,13 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { supabase } from '@/lib/supabase';
-import type { RealtimeChannel, SupabaseClient } from '@supabase/supabase-js';
+import type { RealtimeChannel } from '@supabase/supabase-js';
 import { useAuth } from './AuthContext';
 import { useNotifications } from './NotificationContext';
-// ✅ NOVO: Importar SimplePublisher e SimpleViewer ao invés do PeerService antigo
-import { SimplePublisher, SimpleViewer, ConnectionStatus as WebRTCConnectionStatus } from '@/services/webrtc/simpleWebRTC';
-import { checkLiveStreamTables } from '@/services/createLiveStreamTables';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const supabaseClient = supabase as any;
 
-// Para compatibilidade temporária (remover depois)
-type PeerConnectionStatus = WebRTCConnectionStatus;
+type PeerConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'failed';
 
 // Interfaces
 export interface StreamPermission {
@@ -28,7 +24,8 @@ export interface LiveStream {
   title: string;
   description: string | null;
   thumbnailUrl: string | null;
-  thumbnail?: string | null; // Adicionando campo thumbnail para compatibilidade
+  thumbnail?: string | null;
+  meetingUrl: string | null;
   streamKey: string;
   streamUrl: string | null;
   status: 'scheduled' | 'live' | 'ended' | 'deleted';
@@ -36,9 +33,9 @@ export interface LiveStream {
   startedAt: string | null;
   endedAt: string | null;
   userId: string;
-  streamerId?: string; // Para compatibilidade com ExtendedLiveStream
-  streamerName?: string; // Para compatibilidade com ExtendedLiveStream
-  streamerAvatar?: string; // Para compatibilidade com ExtendedLiveStream
+  streamerId?: string;
+  streamerName?: string;
+  streamerAvatar?: string;
   viewerCount: number;
   tags: string[];
   language: string;
@@ -67,11 +64,6 @@ export interface StreamComment {
   };
 }
 
-// Adicionar ID especificado à lista de usuários que podem criar streams
-const AUTHORIZED_USERS = [
-  'f9f4c3bb-8a6a-494e-aae2-8eeca8a3d85b', // ID do usuário ie702959@gmail.com
-  // outros IDs autorizados...
-];
 
 // Tipo para o contexto
 export interface LiveStreamContextType {
@@ -104,7 +96,7 @@ export interface LiveStreamContextType {
   getPeerId: () => string | null;
   getConnectionStatus: () => PeerConnectionStatus | null;
   initializePeerViewer: (streamId: string, videoElement: HTMLVideoElement) => Promise<boolean>;
-  stopPeerViewer: () => Promise<boolean>;
+  stopPeerViewer: (streamId?: string) => Promise<boolean>;
   verificarTabelas: () => Promise<{success: boolean, error?: string}>;
 }
 
@@ -123,26 +115,21 @@ export function LiveStreamProvider({ children }: { children: ReactNode }) {
   const [isProcessingAction, setIsProcessingAction] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [hasStreamingPermission, setHasStreamingPermission] = useState<boolean>(false);
-  // ✅ NOVO: Usar SimplePublisher e SimpleViewer
-  const [simplePublisher, setSimplePublisher] = useState<SimplePublisher | null>(null);
-  const [simpleViewer, setSimpleViewer] = useState<SimpleViewer | null>(null);
-  
+
   // Gerar um ID de instância único para este componente
   const instanceIdRef = React.useRef<string>(`instance-${Math.random().toString(36).substring(2, 9)}`);
   
   // Usar uma referência para o canal para evitar múltiplas inscrições
   const channelRef = React.useRef<RealtimeChannel | null>(null);
 
-  const { user } = useAuth();
+  const { user, isAdmin: isAuthAdmin } = useAuth();
   const { addNotification } = useNotifications();
   
   const userRef = React.useRef(user);
   React.useEffect(() => { userRef.current = user; }, [user]);
 
-  // Função para buscar todas as transmissões
   const fetchStreams = async () => {
     const currentUser = userRef.current || user;
-    console.log('[LiveStreamContext] fetchStreams called, user:', currentUser?.id?.substring(0, 8) || 'NULL');
     if (!currentUser) return [];
     
     setIsLoadingStreams(true);
@@ -152,108 +139,90 @@ export function LiveStreamProvider({ children }: { children: ReactNode }) {
       const { data, error } = await supabaseClient
         .from('live_streams')
         .select('*')
-        .order('created_at', { ascending: false });
+        .in('status', ['live', 'scheduled'])
+        .order('created_at', { ascending: false })
+        .limit(50);
       
-      if (error) {
-        console.error('Erro ao buscar transmissões:', error);
-        throw error;
+      if (error) throw error;
+      
+      // Buscar profiles em batch
+      const userIds = [...new Set(data.map((s: Record<string, unknown>) => s.user_id as string))];
+      const profileMap: Record<string, { display_name: string; avatar_url: string }> = {};
+      if (userIds.length > 0) {
+        const { data: profiles } = await supabaseClient
+          .from('user_profiles')
+          .select('user_id, display_name, avatar_url')
+          .in('user_id', userIds);
+        if (profiles) {
+          for (const p of profiles) {
+            profileMap[p.user_id] = p;
+          }
+        }
       }
-      
-      // Transmissões carregadas (silenciado)
-      
-      // ✅ LIMPEZA AUTOMÁTICA: Marcar streams "fantasma" como 'ended'
-      // Streams com status 'live' mas sem atualização há mais de 5 minutos
+
+      // Limpeza de streams fantasma (a cada 2 min)
       const now = new Date();
-      const ghostStreams = data.filter(stream => {
-        if (stream.status !== 'live') return false;
+      const lastCleanupKey = 'lastStreamCleanup';
+      const lastCleanup = sessionStorage.getItem(lastCleanupKey);
+      if (!lastCleanup || (now.getTime() - parseInt(lastCleanup)) > 120000) {
+        const ghostStreams = data.filter((stream: Record<string, unknown>) => {
+          if (stream.status !== 'live') return false;
+          const lastUpdate = new Date(stream.updated_at as string);
+          return (now.getTime() - lastUpdate.getTime()) / 60000 > 5;
+        });
         
-        const lastUpdate = new Date(stream.updated_at);
-        const timeDiff = now.getTime() - lastUpdate.getTime();
-        const minutesInactive = timeDiff / 60000;
-        
-        return minutesInactive > 5; // Mais de 5 minutos sem atualização
-      });
-      
-      if (ghostStreams.length > 0) {
-        console.warn(`🧹 [LiveStreamContext] Limpando ${ghostStreams.length} stream(s) fantasma...`);
-        
-        // Marcar como 'ended' em batch
-        const ghostIds = ghostStreams.map(s => s.id);
-        const { error: cleanupError } = await supabaseClient
-          .from('live_streams')
-          .update({ 
-            status: 'ended',
-            ended_at: now.toISOString()
-          })
-          .in('id', ghostIds);
-        
-        if (cleanupError) {
-          console.error('❌ [LiveStreamContext] Erro ao limpar streams fantasma:', cleanupError);
-        } else {
-          console.log('✅ [LiveStreamContext] Streams fantasma limpas com sucesso');
-          // Atualizar os dados locais
-          data.forEach(stream => {
+        if (ghostStreams.length > 0) {
+          const ghostIds = ghostStreams.map((s: Record<string, unknown>) => s.id);
+          await supabaseClient
+            .from('live_streams')
+            .update({ status: 'ended', ended_at: now.toISOString() })
+            .in('id', ghostIds);
+          data.forEach((stream: Record<string, unknown>) => {
             if (ghostIds.includes(stream.id)) {
               stream.status = 'ended';
               stream.ended_at = now.toISOString();
             }
           });
         }
+        sessionStorage.setItem(lastCleanupKey, now.getTime().toString());
       }
       
-      // Buscar dados dos usuários (avatar e nome) para cada stream
-      const userIds = [...new Set(data.map(item => item.user_id))];
-      const { data: userProfiles } = await supabaseClient
-        .from('user_profiles')
-        .select('user_id, display_name, avatar_url')
-        .in('user_id', userIds);
-      
-      // Criar mapa de usuários para acesso rápido
-      const userMap = new Map();
-      userProfiles?.forEach(profile => {
-        userMap.set(profile.user_id, {
-          name: profile.display_name || 'Usuário',
-          avatar: profile.avatar_url || ''
-        });
-      });
-      
-      // Formatar os dados para o formato esperado usando os nomes corretos dos campos
-      const formattedStreams = data.map(item => {
-        const userProfile = userMap.get(item.user_id) || { name: 'Usuário', avatar: '' };
+      const formattedStreams = data.map((item: Record<string, unknown>) => {
+        const profile = profileMap[item.user_id as string] || {};
+        const settings = (item.settings || {}) as Record<string, unknown>;
         return {
           id: item.id,
           title: item.title,
           description: item.description,
-        thumbnailUrl: item.thumbnail_url,
-          thumbnail: item.thumbnail_url, // Adicionando campo thumbnail para compatibilidade
-        streamKey: item.stream_key,
-        streamUrl: item.stream_url,
+          thumbnailUrl: item.thumbnail_url,
+          thumbnail: item.thumbnail_url,
+          meetingUrl: item.meeting_url || null,
+          streamKey: item.stream_key,
+          streamUrl: item.stream_url,
           status: item.status,
           scheduledStart: item.scheduled_for,
           startedAt: item.started_at,
           endedAt: item.ended_at,
-        userId: item.user_id,
-          streamerId: item.user_id, // Para compatibilidade com ExtendedLiveStream
-          streamerName: userProfile.name,
-          streamerAvatar: userProfile.avatar,
-          viewerCount: item.viewers_count || 0,
-          tags: item.tags || [],
+          userId: item.user_id,
+          streamerId: item.user_id,
+          streamerName: (profile as Record<string, unknown>).display_name || 'Usuário',
+          streamerAvatar: (profile as Record<string, unknown>).avatar_url || '',
+          viewerCount: (item.viewers_count as number) || 0,
+          tags: (item.tags as string[]) || [],
           language: item.language || 'pt',
           category: item.category,
-          level: null, // Campo não existe na tabela
-          webcamEnabled: item.settings?.webcam_enabled || true,
-          screenShareEnabled: item.settings?.screen_share_enabled || false,
-          streamSettings: item.settings || {},
-        createdAt: item.created_at,
-        updatedAt: item.updated_at
+          level: null,
+          webcamEnabled: settings.webcam_enabled || true,
+          screenShareEnabled: settings.screen_share_enabled || false,
+          streamSettings: settings,
+          createdAt: item.created_at,
+          updatedAt: item.updated_at
         };
       }) as LiveStream[];
       
       setStreams(formattedStreams);
-      
       return formattedStreams;
     } catch (err: unknown) {
-      console.error('Erro ao buscar transmissões:', err);
       setError('Não foi possível buscar as transmissões');
       return [];
     } finally {
@@ -273,28 +242,21 @@ export function LiveStreamProvider({ children }: { children: ReactNode }) {
         .eq('id', streamId)
         .single();
       
-      if (error) {
-        console.error('Erro ao buscar transmissão por ID:', error);
-        throw error;
-      }
+      if (error) throw error;
       
-      // Buscar dados do usuário (avatar e nome)
       const { data: userProfile } = await supabaseClient
         .from('user_profiles')
         .select('display_name, avatar_url')
         .eq('user_id', data.user_id)
         .maybeSingle();
       
-      const streamerName = userProfile?.display_name || 'Usuário';
-      const streamerAvatar = userProfile?.avatar_url || '';
-      
-      // Formatar os dados para o formato esperado usando os nomes corretos dos campos
       const formattedStream = {
         id: data.id,
         title: data.title,
         description: data.description,
         thumbnailUrl: data.thumbnail_url,
-        thumbnail: data.thumbnail_url, // Adicionando campo thumbnail para compatibilidade
+        thumbnail: data.thumbnail_url,
+        meetingUrl: data.meeting_url || null,
         streamKey: data.stream_key,
         streamUrl: data.stream_url,
         status: data.status,
@@ -302,14 +264,14 @@ export function LiveStreamProvider({ children }: { children: ReactNode }) {
         startedAt: data.started_at,
         endedAt: data.ended_at,
         userId: data.user_id,
-        streamerId: data.user_id, // Para compatibilidade com ExtendedLiveStream
-        streamerName: streamerName,
-        streamerAvatar: streamerAvatar,
+        streamerId: data.user_id,
+        streamerName: userProfile?.display_name || 'Usuário',
+        streamerAvatar: userProfile?.avatar_url || '',
         viewerCount: data.viewers_count || 0,
         tags: data.tags || [],
         language: data.language || 'pt',
         category: data.category,
-        level: null, // Campo não existe na tabela
+        level: null,
         webcamEnabled: data.settings?.webcam_enabled || true,
         screenShareEnabled: data.settings?.screen_share_enabled || false,
         streamSettings: data.settings || {},
@@ -320,7 +282,6 @@ export function LiveStreamProvider({ children }: { children: ReactNode }) {
       setActiveStream(formattedStream);
       return formattedStream;
     } catch (err: unknown) {
-      console.error('Erro ao buscar transmissão:', err);
       setError('Não foi possível buscar a transmissão');
       return null;
     } finally {
@@ -328,53 +289,30 @@ export function LiveStreamProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  // Função para criar uma nova transmissão
   const createStream = async (streamData: Partial<LiveStream>): Promise<LiveStream | null> => {
-    if (!user) {
-      console.error('Usuário não autenticado');
-      return null;
-    }
+    if (!user) return null;
     
     setIsProcessingAction(true);
     setError(null);
     
     try {
-      console.log('Criando nova transmissão:', streamData);
+      let isAuthorized = isAuthAdmin;
       
-      // Verificação simples de permissão - incluir novo ID do usuário
-      let isAuthorized = AUTHORIZED_USERS.includes(user.id) || 
-                          user.id === '3084c1f3-91bf-456c-bfac-18e03214a34b' ||
-                          user.email?.toLowerCase() === 'igorelion8@gmail.com' ||
-                          user.email?.toLowerCase() === 'elionn91@gmail.com';
-      
-      // Se não está autorizado pela lista, verifica no banco de dados
       if (!isAuthorized) {
         try {
-          console.log('Verificando permissões no banco de dados para:', user.id);
-          
-          const { data: permissionData, error: permissionError } = await supabaseClient
+          const { data: permissionData } = await supabaseClient
             .from('stream_permissions')
             .select('*')
             .eq('user_id', user.id)
             .maybeSingle();
-          
-          if (permissionError) {
-            console.error('Erro ao consultar permissões:', permissionError);
-          } else if (permissionData && permissionData.can_create) {
-            console.log('Usuário autorizado pela tabela stream_permissions:', permissionData);
-            isAuthorized = true;
-          }
-        } catch (err) {
-          console.error('Erro ao verificar permissões na tabela:', err);
-        }
+          if (permissionData?.can_create) isAuthorized = true;
+        } catch { /* silenciado */ }
       }
       
-      // Verificação final de autorização
       if (!isAuthorized) {
         throw new Error('Você não tem permissão para criar transmissões');
       }
 
-      // Buscar o display_name e avatar do usuário
       let username = user.email || 'Usuário';
       let userAvatar = '';
       try {
@@ -383,73 +321,54 @@ export function LiveStreamProvider({ children }: { children: ReactNode }) {
           .select('display_name, avatar_url')
           .eq('user_id', user.id)
           .maybeSingle();
-        
-        if (profile?.display_name) {
-          username = profile.display_name;
-        }
-        if (profile?.avatar_url) {
-          userAvatar = profile.avatar_url;
-        }
-      } catch (profileError) {
-        console.warn('Não foi possível buscar dados do perfil, usando fallbacks');
-      }
+        if (profile?.display_name) username = profile.display_name;
+        if (profile?.avatar_url) userAvatar = profile.avatar_url;
+      } catch { /* silenciado */ }
       
-      // Gerar uma chave de stream única
       const streamKey = generateStreamKey();
       
-      // Preparar dados básicos para inserção usando os nomes corretos dos campos
-      const insertData = {
+      const insertData: Record<string, unknown> = {
         title: streamData.title || 'Nova transmissão',
         description: streamData.description || '',
         user_id: user.id,
-        username: username, // Campo obrigatório na tabela
+        username: username,
         stream_key: streamKey,
         stream_url: null,
+        meeting_url: streamData.meetingUrl || null,
         thumbnail_url: streamData.thumbnailUrl || streamData.thumbnail || null,
         viewers_count: 0,
         scheduled_for: new Date().toISOString(),
-        started_at: null, // ✅ CORREÇÃO: Não iniciar automaticamente
+        started_at: null,
         ended_at: null,
-        status: 'scheduled', // ✅ CORREÇÃO: Mudar para 'scheduled' até clicar em "Iniciar"
+        status: streamData.meetingUrl ? 'live' : 'scheduled',
         category: streamData.category || null,
         tags: streamData.tags || [],
         language: streamData.language || 'pt',
         settings: {
           chat_enabled: true,
-        webcam_enabled: true,
+          webcam_enabled: true,
           recording_enabled: false,
-        screen_share_enabled: false,
+          screen_share_enabled: false,
           ...streamData.streamSettings
         }
       };
       
-      console.log('Inserindo dados com estrutura correta:', insertData);
-      
-      // Inserir no banco de dados
       const { data, error } = await supabaseClient
         .from('live_streams')
         .insert([insertData])
         .select()
         .single();
       
-      if (error) {
-        console.error('Erro do Supabase:', error);
-        throw new Error(`Erro ao criar transmissão: ${(error instanceof Error ? error.message : String(error))}`);
-      }
+      if (error) throw new Error(`Erro ao criar transmissão: ${String(error.message || error)}`);
+      if (!data) throw new Error('Nenhum dado retornado após criação');
       
-      if (!data) {
-        throw new Error('Nenhum dado retornado após criação');
-      }
-      
-      console.log('Transmissão criada com sucesso:', data);
-      
-      // Formatar dados de retorno para o formato esperado pelo frontend
       const newStream: LiveStream = {
         id: data.id,
         title: data.title,
         description: data.description,
         thumbnailUrl: data.thumbnail_url,
-        thumbnail: data.thumbnail_url, // Adicionando campo thumbnail para compatibilidade
+        thumbnail: data.thumbnail_url,
+        meetingUrl: data.meeting_url || null,
         streamKey: data.stream_key,
         streamUrl: data.stream_url,
         status: data.status,
@@ -457,14 +376,14 @@ export function LiveStreamProvider({ children }: { children: ReactNode }) {
         startedAt: data.started_at,
         endedAt: data.ended_at,
         userId: data.user_id,
-        streamerId: data.user_id, // Para compatibilidade com ExtendedLiveStream
-        streamerName: username, // Nome do usuário
-        streamerAvatar: userAvatar, // Avatar do usuário
+        streamerId: data.user_id,
+        streamerName: username,
+        streamerAvatar: userAvatar,
         viewerCount: data.viewers_count || 0,
         tags: data.tags || [],
         language: data.language || 'pt',
         category: data.category,
-        level: null, // Campo não existe na tabela
+        level: null,
         webcamEnabled: data.settings?.webcam_enabled || true,
         screenShareEnabled: data.settings?.screen_share_enabled || false,
         streamSettings: data.settings || {},
@@ -472,32 +391,18 @@ export function LiveStreamProvider({ children }: { children: ReactNode }) {
         updatedAt: data.updated_at
       };
       
-      // Atualizar estado local
       setStreams(prev => [newStream, ...prev]);
-      
-      // Notificar sucesso
-      addNotification({
-        type: 'success',
-        title: 'Transmissão criada',
-        message: 'Sua transmissão foi criada com sucesso!',
-        timestamp: new Date()
-      });
-      
       return newStream;
       
     } catch (err: unknown) {
-      console.error('Erro ao criar transmissão:', err);
-      
-      const errorMessage = err instanceof Error ? (err instanceof Error ? err.message : String(err)) : 'Erro desconhecido ao criar transmissão';
+      const errorMessage = err instanceof Error ? err.message : 'Erro desconhecido ao criar transmissão';
       setError(errorMessage);
-      
       addNotification({
         type: 'error',
         title: 'Erro ao criar transmissão',
         message: errorMessage,
         timestamp: new Date()
       });
-      
       return null;
     } finally {
       setIsProcessingAction(false);
@@ -512,11 +417,8 @@ export function LiveStreamProvider({ children }: { children: ReactNode }) {
     setError(null);
     
     try {
-      // Verificar se o usuário é um administrador pelo ID
-      const isAdminUser = ['f9f4c3bb-8a6a-494e-aae2-8eeca8a3d85b'].includes(user.id);
-      
-      // Se não for admin, verificar se a transmissão pertence ao usuário
-      if (!isAdminUser) {
+      // Admins podem atualizar qualquer transmissão; demais usuários só a própria
+      if (!isAuthAdmin) {
         const { data: stream, error: fetchError } = await supabaseClient
           .from('live_streams')
           .select('user_id')
@@ -549,8 +451,8 @@ export function LiveStreamProvider({ children }: { children: ReactNode }) {
       if (updateData.streamSettings !== undefined) dbUpdateData.stream_settings = updateData.streamSettings;
       if (updateData.createdAt !== undefined) dbUpdateData.created_at = updateData.createdAt;
       if (updateData.updatedAt !== undefined) dbUpdateData.updated_at = updateData.updatedAt;
+      if (updateData.meetingUrl !== undefined) dbUpdateData.meeting_url = updateData.meetingUrl;
       
-      // Campos simples que mantêm o mesmo nome
       if (updateData.title !== undefined) dbUpdateData.title = updateData.title;
       if (updateData.description !== undefined) dbUpdateData.description = updateData.description;
       if (updateData.status !== undefined) dbUpdateData.status = updateData.status;
@@ -607,11 +509,8 @@ export function LiveStreamProvider({ children }: { children: ReactNode }) {
     setError(null);
     
     try {
-      // Verificar se o usuário é um administrador pelo ID
-      const isAdminUser = ['f9f4c3bb-8a6a-494e-aae2-8eeca8a3d85b'].includes(user.id);
-      
-      // Se não for admin, verificar se a transmissão pertence ao usuário
-      if (!isAdminUser) {
+      // Admins podem excluir qualquer transmissão; demais usuários só a própria
+      if (!isAuthAdmin) {
         const { data: stream, error: fetchError } = await supabaseClient
           .from('live_streams')
           .select('user_id')
@@ -681,7 +580,6 @@ export function LiveStreamProvider({ children }: { children: ReactNode }) {
         .order('created_at', { ascending: true });
       
       if (error) {
-        console.error('❌ [LiveStream] Erro ao buscar comentários:', error);
         throw error;
       }
       
@@ -821,9 +719,7 @@ export function LiveStreamProvider({ children }: { children: ReactNode }) {
               timestamp: new Date()
             });
             
-          } catch (err) {
-            console.error('❌ [LiveStream] Erro ao processar novo comentário:', err);
-          }
+          } catch { /* silenciado */ }
         }
       )
       .subscribe((status) => {
@@ -872,11 +768,8 @@ export function LiveStreamProvider({ children }: { children: ReactNode }) {
         .single();
       
       if (error) {
-        console.error('Erro ao adicionar comentário:', error);
         throw error;
       }
-      
-      console.log('Comentário adicionado:', data);
       
       // Buscar informações do usuário para incluir no comentário
       const { data: userData, error: userError } = await supabaseClient
@@ -884,10 +777,6 @@ export function LiveStreamProvider({ children }: { children: ReactNode }) {
         .select('*')
         .eq('user_id', user.id)
         .maybeSingle();
-      
-      if (userError) {
-        console.warn('Erro ao buscar dados do usuário:', userError);
-      }
       
       // Criar objeto comentário completo
       const newComment: StreamComment = {
@@ -929,7 +818,6 @@ export function LiveStreamProvider({ children }: { children: ReactNode }) {
       // Verificar se o usuário pode moderar
       const canMod = await canModerate(streamId);
       if (!canMod) {
-        console.error('Usuário não tem permissão para deletar comentários');
         return false;
       }
 
@@ -939,14 +827,12 @@ export function LiveStreamProvider({ children }: { children: ReactNode }) {
         .eq('id', commentId);
       
       if (error) {
-        console.error('Erro ao deletar comentário:', error);
         throw error;
       }
       
       // Remover do estado local
       setComments(prev => prev.filter(c => c.id !== commentId));
       
-      console.log('Comentário deletado:', commentId);
       return true;
     } catch (err: unknown) {
       console.error('Erro ao deletar comentário:', err);
@@ -958,6 +844,9 @@ export function LiveStreamProvider({ children }: { children: ReactNode }) {
   // Função para verificar se o usuário pode moderar uma stream
   const canModerate = async (streamId: string): Promise<boolean> => {
     if (!user) return false;
+    if (!streamId || streamId === 'undefined') {
+      return false;
+    }
     
     try {
       // Buscar informações da stream
@@ -968,7 +857,6 @@ export function LiveStreamProvider({ children }: { children: ReactNode }) {
         .single();
       
       if (streamError || !streamData) {
-        console.error('Erro ao buscar stream:', streamError);
         return false;
       }
       
@@ -992,8 +880,7 @@ export function LiveStreamProvider({ children }: { children: ReactNode }) {
       }
       
       return !!modData;
-    } catch (err) {
-      console.error('Erro ao verificar permissão de moderação:', err);
+    } catch {
       return false;
     }
   };
@@ -1008,15 +895,8 @@ export function LiveStreamProvider({ children }: { children: ReactNode }) {
     if (!user) return null;
     
     try {
-      // Verificação inicial com lista hardcoded
-      const isHardcodedAuth = AUTHORIZED_USERS.includes(user.id) || 
-                            user.id === '3084c1f3-91bf-456c-bfac-18e03214a34b' ||
-                            user.email?.toLowerCase() === 'ie702959@gmail.com' ||
-                            user.email?.toLowerCase() === 'igorelion8@gmail.com' ||
-                            user.email?.toLowerCase() === 'elionn91@gmail.com';
-      
-      if (isHardcodedAuth) {
-        // Criar permissão automática para usuários autorizados por lista hardcoded
+      // Administradores (is_admin=true no banco) têm permissão automática
+      if (isAuthAdmin) {
         const autoPermission: StreamPermission = {
           id: `auto-${user.id}`,
           userId: user.id,
@@ -1032,8 +912,6 @@ export function LiveStreamProvider({ children }: { children: ReactNode }) {
       }
       
       // Verificar na tabela stream_permissions
-      console.log('Verificando permissões no banco de dados para:', user.id);
-      
       const { data: permissionData, error: permissionError } = await supabaseClient
         .from('stream_permissions')
         .select('*')
@@ -1041,7 +919,6 @@ export function LiveStreamProvider({ children }: { children: ReactNode }) {
         .maybeSingle();
       
       if (permissionError) {
-        console.error('Erro ao consultar permissões:', permissionError);
         setUserPermissions(null);
         setHasStreamingPermission(false);
         return null;
@@ -1058,20 +935,17 @@ export function LiveStreamProvider({ children }: { children: ReactNode }) {
           updatedAt: permissionData.updated_at
         };
         
-        console.log('Permissões encontradas no banco:', dbPermission);
         setUserPermissions(dbPermission);
         setHasStreamingPermission(true);
         return dbPermission;
       }
       
       // Para usuários não autorizados
-      console.log('Usuário não tem permissões para streaming:', user.id);
       setUserPermissions(null);
       setHasStreamingPermission(false);
       return null;
       
-    } catch (err: unknown) {
-      console.error('Erro ao verificar permissões:', err);
+    } catch {
       setUserPermissions(null);
       setHasStreamingPermission(false);
       return null;
@@ -1125,8 +999,6 @@ export function LiveStreamProvider({ children }: { children: ReactNode }) {
       schema: 'public', 
       table: 'live_streams' 
     }, (payload) => {
-      console.log(`[${instanceIdRef.current}] Recebido evento de alteração de stream:`, payload.eventType);
-      
       if (payload.eventType === 'INSERT') {
         setStreams(prev => [payload.new as LiveStream, ...prev]);
       } else if (payload.eventType === 'UPDATE') {
@@ -1154,9 +1026,7 @@ export function LiveStreamProvider({ children }: { children: ReactNode }) {
       channel.subscribe((status) => {
         // Status da inscrição (silenciado)
       });
-    } catch (err) {
-      console.error(`[${instanceIdRef.current}] Erro ao inscrever no canal:`, err);
-    }
+    } catch { /* silenciado */ }
     
     // Função de limpeza - executada quando o componente é desmontado
     return () => {
@@ -1181,6 +1051,55 @@ export function LiveStreamProvider({ children }: { children: ReactNode }) {
       setUserPermissions(null);
     }
   }, [user]);
+
+  // ─── WebRTC / LiveKit stubs ───────────────────────────────────────────────
+  // O vídeo real é gerenciado pelo LiveKitContext em cada página.
+  // Estas funções fazem apenas operações de banco (tracking de viewers).
+
+  const initializeWebRTC = async (_streamId: string, _requestMedia: boolean = true): Promise<boolean> => {
+    return true;
+  };
+
+  const stopWebRTC = async (): Promise<boolean> => {
+    return true;
+  };
+
+  const updatePublisherStream = async (_newStream: MediaStream): Promise<boolean> => {
+    return true;
+  };
+
+  const getPeerId = (): string | null => null;
+
+  const getConnectionStatus = (): PeerConnectionStatus | null => null;
+
+  const initializePeerViewer = async (streamId: string, _videoElement: HTMLVideoElement): Promise<boolean> => {
+    if (!user) return false;
+    const sessionId = `${user.id}-${Date.now()}`;
+    try {
+      await supabaseClient.rpc('join_stream_viewer', {
+        p_stream_id: streamId,
+        p_user_id: user.id,
+        p_session_id: sessionId,
+      });
+    } catch { /* silenciado */ }
+    return true;
+  };
+
+  const stopPeerViewer = async (streamId?: string): Promise<boolean> => {
+    if (!user || !streamId) return true;
+    try {
+      await supabaseClient.rpc('leave_stream_viewer', {
+        p_stream_id: streamId,
+        p_user_id: user.id,
+      });
+    } catch { /* silenciado */ }
+    return true;
+  };
+
+  const verificarTabelas = async (): Promise<{ success: boolean; error?: string }> => {
+    return { success: true };
+  };
+  // ─────────────────────────────────────────────────────────────────────────
 
   // Função para iniciar uma transmissão
   const startStream = async (streamId: string): Promise<boolean> => {
@@ -1213,7 +1132,6 @@ export function LiveStreamProvider({ children }: { children: ReactNode }) {
         .eq('id', streamId);
       
       if (error) {
-        console.error('Erro ao iniciar transmissão:', error);
         throw error;
       }
       
@@ -1229,13 +1147,13 @@ export function LiveStreamProvider({ children }: { children: ReactNode }) {
         setActiveStream(prev => prev ? { ...prev, status: 'live', startedAt: new Date().toISOString() } : null);
       }
       
-      // Notificar o usuário
-      addNotification({
-        title: 'Transmissão iniciada',
-        message: 'Sua transmissão ao vivo foi iniciada com sucesso.',
-        type: 'success',
-        timestamp: new Date()
-      });
+      // Notificar o usuário - REMOVIDO
+      // addNotification({
+      //   title: 'Transmissão iniciada',
+      //   message: 'Sua transmissão ao vivo foi iniciada com sucesso.',
+      //   type: 'success',
+      //   timestamp: new Date()
+      // });
       
       return true;
     } catch (err: unknown) {
@@ -1285,7 +1203,6 @@ export function LiveStreamProvider({ children }: { children: ReactNode }) {
         .eq('id', streamId);
       
       if (error) {
-        console.error('Erro ao encerrar transmissão:', error);
         throw error;
       }
       
@@ -1301,19 +1218,13 @@ export function LiveStreamProvider({ children }: { children: ReactNode }) {
         setActiveStream(prev => prev ? { ...prev, status: 'ended', endedAt: new Date().toISOString() } : null);
       }
       
-      // Parar o SimplePublisher se estiver ativo
-      if (simplePublisher) {
-        await simplePublisher.destroy();
-        setSimplePublisher(null);
-      }
-      
-      // Notificar o usuário
-      addNotification({
-        title: 'Transmissão encerrada',
-        message: 'Sua transmissão ao vivo foi encerrada com sucesso.',
-        type: 'success',
-        timestamp: new Date()
-      });
+      // Notificar o usuário - REMOVIDO
+      // addNotification({
+      //   title: 'Transmissão encerrada',
+      //   message: 'Sua transmissão ao vivo foi encerrada com sucesso.',
+      //   type: 'success',
+      //   timestamp: new Date()
+      // });
       
       return true;
     } catch (err: unknown) {
@@ -1333,313 +1244,7 @@ export function LiveStreamProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  // Função para inicializar o PeerJS para transmissão
-  // ✅ NOVO: Inicializar WebRTC com SimplePublisher
-  const initializeWebRTC = async (streamId: string, requestMedia: boolean = true): Promise<boolean> => {
-    if (!user) {
-      console.error('❌ Usuário não autenticado');
-      return false;
-    }
-
-    try {
-      setIsProcessingAction(true);
-      
-      console.log('🎬 [LiveStreamContext] Inicializando WebRTC (NOVO):', {
-        streamId,
-        userId: user.id,
-        requestMedia
-      });
-      
-      // Solicitar acesso à mídia
-      let mediaStream: MediaStream | null = null;
-      
-      if (requestMedia) {
-        console.log('📹 [LiveStreamContext] Solicitando acesso à mídia...');
-        
-        try {
-          const constraints: MediaStreamConstraints = {
-            video: {
-              width: { ideal: 1280 },
-              height: { ideal: 720 },
-              frameRate: { ideal: 30 }
-            },
-            audio: true
-          };
-          
-          mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
-          console.log('✅ [LiveStreamContext] Acesso à mídia concedido:', mediaStream.getTracks().map(t => t.kind));
-        } catch (mediaError: unknown) {
-          console.error('❌ [LiveStreamContext] Erro ao solicitar mídia:', mediaError);
-          
-          // Fallback: tentar apenas áudio
-          const errorName = mediaError instanceof DOMException ? mediaError.name : '';
-          if (errorName === 'NotFoundError' || errorName === 'NotAllowedError') {
-            try {
-              mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-              console.log('✅ [LiveStreamContext] Fallback: apenas áudio');
-            } catch (audioError) {
-              throw new Error('Não foi possível acessar câmera ou microfone');
-            }
-          } else {
-            throw mediaError;
-          }
-        }
-      }
-      
-      if (!mediaStream) {
-        throw new Error('Stream de mídia não disponível');
-      }
-      
-      // ✅ NOVO: Criar SimplePublisher
-      const publisher = new SimplePublisher(
-        streamId,
-        user.id,
-        {
-          onStatusChange: (status) => {
-            console.log('📊 [SimplePublisher] Status:', status);
-            if (status === 'connected') {
-              addNotification({ 
-                type: 'success',
-                title: 'Transmissão iniciada',
-                message: 'Você está ao vivo!',
-                timestamp: new Date()
-              });
-            } else if (status === 'failed') {
-              addNotification({
-                type: 'error',
-                title: 'Erro de conexão',
-                message: 'Falha ao estabelecer conexão',
-                timestamp: new Date()
-              });
-            }
-          },
-          onViewerConnected: (viewerId) => {
-            console.log('👁️ [SimplePublisher] Viewer conectado:', viewerId);
-            addNotification({
-              type: 'info',
-              title: 'Novo espectador',
-              message: 'Alguém está assistindo sua transmissão!',
-              timestamp: new Date()
-            });
-          },
-          onViewerDisconnected: (viewerId) => {
-            console.log('👋 [SimplePublisher] Viewer desconectado:', viewerId);
-          },
-        }
-      );
-      
-      // Inicializar
-      const success = await publisher.initialize(mediaStream);
-      
-      if (success) {
-        console.log('✅ [LiveStreamContext] SimplePublisher inicializado!');
-        setSimplePublisher(publisher);
-        return true;
-      } else {
-        console.error('❌ [LiveStreamContext] Falha ao inicializar SimplePublisher');
-        return false;
-      }
-    } catch (error: unknown) {
-      console.error('💥 [LiveStreamContext] Erro ao inicializar WebRTC:', error);
-      setError((error instanceof Error ? error.message : String(error)) || 'Erro ao configurar transmissão');
-      
-      addNotification({
-        type: 'error',
-        title: 'Erro de configuração',
-        message: error instanceof Error ? error.message : String(error) || 'Não foi possível configurar a transmissão',
-        timestamp: new Date()
-      });
-      
-      return false;
-    } finally {
-      setIsProcessingAction(false);
-    }
-  };
-  
-  // Parar a transmissão PeerJS
-  // ✅ NOVO: Parar WebRTC
-  const stopWebRTC = async (): Promise<boolean> => {
-    try {
-      console.log('🛑 [LiveStreamContext] Parando WebRTC...');
-      
-      if (simplePublisher) {
-        await simplePublisher.destroy();
-        setSimplePublisher(null);
-        console.log('✅ [LiveStreamContext] SimplePublisher destruído');
-      }
-      
-      if (simpleViewer) {
-        await simpleViewer.destroy();
-        setSimpleViewer(null);
-        console.log('✅ [LiveStreamContext] SimpleViewer destruído');
-      }
-      
-      return true;
-    } catch (error: unknown) {
-      console.error('💥 [LiveStreamContext] Erro ao parar WebRTC:', error);
-      setError((error instanceof Error ? error.message : String(error)) || 'Erro ao parar WebRTC');
-      return false;
-    }
-  };
-
-  // ✅ NOVO: Atualizar stream do publisher (compartilhamento de tela, etc.)
-  const updatePublisherStream = async (newStream: MediaStream): Promise<boolean> => {
-    try {
-      console.log('🔄 [LiveStreamContext] Atualizando stream do publisher...');
-      
-      if (!simplePublisher) {
-        console.error('❌ [LiveStreamContext] SimplePublisher não inicializado');
-        return false;
-      }
-      
-      await simplePublisher.updateStream(newStream);
-      console.log('✅ [LiveStreamContext] Stream do publisher atualizada');
-      
-      return true;
-    } catch (error: unknown) {
-      console.error('💥 [LiveStreamContext] Erro ao atualizar stream:', error);
-      setError((error instanceof Error ? error.message : String(error)) || 'Erro ao atualizar stream');
-      return false;
-    }
-  };
-  
-  // ✅ NOVO: Inicializar SimpleViewer
-  const initializePeerViewer = async (streamId: string, videoElement: HTMLVideoElement): Promise<boolean> => {
-    if (!user) {
-      console.error('❌ [LiveStreamContext] Usuário não autenticado');
-      setError('Você precisa estar autenticado para assistir transmissões');
-      return false;
-    }
-    
-    try {
-      setIsProcessingAction(true);
-      
-      console.log('🎬 [LiveStreamContext] Inicializando viewer (NOVO):', {
-        streamId,
-        userId: user.id
-      });
-      
-      // Buscar info da transmissão
-      const stream = await fetchStreamById(streamId);
-      if (!stream) {
-        throw new Error('Transmissão não encontrada');
-      }
-      
-      const publisherId = stream.userId;
-      console.log('🎯 [LiveStreamContext] Publisher ID:', publisherId);
-      
-      if (!publisherId) {
-        throw new Error('ID do streamer não encontrado');
-      }
-      
-      // ✅ NOVO: Criar SimpleViewer
-      const viewer = new SimpleViewer(
-        streamId,
-        user.id,
-        publisherId,
-        videoElement,
-        {
-          onStatusChange: (status) => {
-            console.log('📊 [SimpleViewer] Status:', status);
-            if (status === 'connected') {
-              addNotification({
-                type: 'success',
-                title: 'Conectado!',
-                message: 'Você está assistindo a transmissão',
-                timestamp: new Date()
-              });
-            } else if (status === 'failed') {
-              addNotification({
-                type: 'error',
-                title: 'Erro de conexão',
-                message: 'Não foi possível conectar à transmissão',
-                timestamp: new Date()
-              });
-            }
-          },
-          onStreamReceived: (stream) => {
-            console.log('🎥 [SimpleViewer] Stream recebida:', stream.id);
-          },
-        }
-      );
-      
-      // Inicializar
-      const success = await viewer.initialize();
-      
-      if (success) {
-        console.log('✅ [LiveStreamContext] SimpleViewer inicializado!');
-        setSimpleViewer(viewer);
-        return true;
-      } else {
-        console.error('❌ [LiveStreamContext] Falha ao inicializar SimpleViewer');
-        throw new Error('Falha ao conectar à transmissão');
-      }
-    } catch (error: unknown) {
-      console.error('💥 [LiveStreamContext] Erro ao inicializar viewer:', error);
-      setError((error instanceof Error ? error.message : String(error)) || 'Erro ao inicializar visualização');
-      
-      addNotification({
-        type: 'error',
-        title: 'Erro ao conectar',
-        message: error instanceof Error ? error.message : String(error) || 'Não foi possível conectar à transmissão',
-        timestamp: new Date()
-      });
-      
-      return false;
-    } finally {
-      setIsProcessingAction(false);
-    }
-  };
-  
-  // ✅ NOVO: Parar SimpleViewer
-  const stopPeerViewer = async (): Promise<boolean> => {
-    try {
-      console.log('🛑 [LiveStreamContext] Parando SimpleViewer...');
-      
-      if (simpleViewer) {
-        await simpleViewer.destroy();
-        setSimpleViewer(null);
-        console.log('✅ [LiveStreamContext] SimpleViewer destruído');
-      }
-      
-      return true;
-    } catch (error: unknown) {
-      console.error('💥 [LiveStreamContext] Erro ao parar SimpleViewer:', error);
-      setError((error instanceof Error ? error.message : String(error)) || 'Erro ao parar visualização');
-      return false;
-    }
-  };
-  
-  // ✅ NOVO: Obter peer ID (compatibilidade)
-  const getPeerId = (): string | null => {
-    if (simplePublisher) {
-      return `simple-pub-${user?.id || 'unknown'}`;
-    } else if (simpleViewer) {
-      return `simple-view-${user?.id || 'unknown'}`;
-    }
-    return null;
-  };
-  
-  // ✅ NOVO: Obter status de conexão
-  const getConnectionStatus = (): PeerConnectionStatus | null => {
-    if (simplePublisher) {
-      return simplePublisher.getStatus();
-    } else if (simpleViewer) {
-      return simpleViewer.getStatus();
-    }
-    return null;
-  };
-
-  // Verificar tabelas e criar se necessário
-  const verificarTabelas = async (): Promise<{ success: boolean, error?: string }> => {
-    try {
-      // Alterar o retorno da função checkLiveStreamTables para corresponder ao tipo esperado
-      const result = await checkLiveStreamTables();
-      return { success: result, error: result ? undefined : 'Falha ao verificar tabelas' };
-    } catch (err: unknown) {
-      return { success: false, error: (err instanceof Error ? err.message : String(err)) };
-    }
-  };
+  // (implementações dos stubs estão acima, antes do startStream)
 
   const value: LiveStreamContextType = {
     streams,

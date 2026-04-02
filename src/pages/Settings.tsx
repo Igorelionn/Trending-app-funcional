@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { useSearchParams } from "react-router-dom";
 import Layout from "@/components/Layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -102,8 +103,17 @@ const Settings = () => {
   const navigate = useNavigate();
   const { t } = useLanguage();
   const { user } = useAuth();
+  const [searchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState("perfil");
   const [showTermsModal, setShowTermsModal] = useState(false);
+  
+  // 🔥 Detectar aba da URL
+  useEffect(() => {
+    const tabFromUrl = searchParams.get('tab');
+    if (tabFromUrl) {
+      setActiveTab(tabFromUrl);
+    }
+  }, [searchParams]);
   
   // Configurações gerais
   const [autoBackup, setAutoBackup] = useState<boolean>(false);

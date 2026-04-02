@@ -3,7 +3,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Heart, Hash, Check, ChevronRight, X, Loader2 } from "lucide-react";
 import { traderLinkService } from "@/services/traderLinkService";
-import { validateSupporterCode } from "@/lib/admin-api";
+import { validateSupporterCode, registerSupporterCodeUsage } from "@/lib/admin-api";
 import { supporterInfoService } from "@/services/supporterInfoService";
 import { toast } from "sonner";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -50,15 +50,25 @@ const TraderSupportSettings = () => {
     const validate = async () => {
       setValidating(true);
       try {
+        console.log('🔍 Validando código:', debouncedCode);
         const result = await validateSupporterCode(debouncedCode);
         setCodeStatus(result.valid ? 'valid' : 'invalid');
         setCodeDescription(result.description);
         setSpecialMessage(result.special_message);
         setDisplayName(result.display_name);
         if (result.valid) {
+          console.log('✅ Código válido, registrando uso...');
+          // Registrar o uso do código
+          const registerResult = await registerSupporterCodeUsage(debouncedCode);
+          if (registerResult.success) {
+            console.log('✅ Uso do código registrado com sucesso!');
+          } else {
+            console.error('❌ Erro ao registrar uso:', registerResult.error);
+          }
           savePreferences(debouncedCode);
         }
-      } catch {
+      } catch (err) {
+        console.error('❌ Erro na validação:', err);
         setCodeStatus('invalid');
       } finally {
         setValidating(false);
@@ -85,11 +95,22 @@ const TraderSupportSettings = () => {
         setIsUsingDefault(!code || !code.trim());
         setDaysRemaining(null); // Código nunca expira
         if (code && code.trim()) {
+          console.log('🔍 Carregando preferências, código encontrado:', code);
           const result = await validateSupporterCode(code);
           setCodeStatus(result.valid ? 'valid' : 'invalid');
           setCodeDescription(result.description);
           setSpecialMessage(result.special_message);
           setDisplayName(result.display_name);
+          // Registrar o uso do código
+          if (result.valid) {
+            console.log('✅ Código válido ao carregar, registrando uso...');
+            const registerResult = await registerSupporterCodeUsage(code);
+            if (registerResult.success) {
+              console.log('✅ Uso registrado ao carregar preferências!');
+            } else {
+              console.error('❌ Erro ao registrar uso ao carregar:', registerResult.error);
+            }
+          }
         }
       }
     } catch (error) {

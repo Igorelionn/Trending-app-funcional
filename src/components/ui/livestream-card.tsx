@@ -138,7 +138,10 @@ export const LiveStreamCard = ({
         <div className="flex gap-3">
           {/* Avatar do streamer */}
           <Avatar className="h-9 w-9">
-            <AvatarImage src={stream.avatar_url} />
+            <AvatarImage 
+              src={stream.avatar_url}
+              className="object-cover w-full h-full"
+            />
             <AvatarFallback>{stream.username.charAt(0).toUpperCase()}</AvatarFallback>
           </Avatar>
           

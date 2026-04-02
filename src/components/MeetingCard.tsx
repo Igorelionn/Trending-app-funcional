@@ -207,7 +207,10 @@ export const MeetingCard: React.FC<MeetingCardProps> = ({
           <div className="flex items-center gap-2 relative z-10">
             <div className="relative">
               <Avatar className="h-8 w-8 rounded-full border border-white/20 group-hover:border-white/40 transition-all duration-300">
-                <AvatarImage src={stream.streamerAvatar} />
+                <AvatarImage 
+                  src={stream.streamerAvatar}
+                  className="object-cover w-full h-full"
+                />
                 <AvatarFallback className="bg-black text-white">
                   {stream.streamerName.substring(0, 2).toUpperCase()}
                 </AvatarFallback>
@@ -460,7 +463,10 @@ export const MeetingCard: React.FC<MeetingCardProps> = ({
                 transition={{ type: "spring", stiffness: 400, damping: 10 }}
               >
                 <Avatar className="h-10 w-10 rounded-full border-2 border-white/20 shadow-lg">
-                  <AvatarImage src={stream.streamerAvatar} />
+                  <AvatarImage 
+                    src={stream.streamerAvatar}
+                    className="object-cover w-full h-full"
+                  />
                   <AvatarFallback className="bg-black text-white">
                     {stream.streamerName ? stream.streamerName.substring(0, 2).toUpperCase() : 'UN'}
                   </AvatarFallback>

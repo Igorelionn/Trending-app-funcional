@@ -21,15 +21,10 @@ export default defineConfig(({ mode }) => ({
     fs: {
       strict: false
     },
-    hmr: {
-      protocol: 'ws',
-      host: '127.0.0.1',
-      port: 8090,
-      clientPort: 8090,
-    },
+    hmr: true,
     headers: {
       'Accept-Ranges': 'bytes',
-      'Cache-Control': 'public, max-age=31536000',
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
     },
     watch: {
       usePolling: false,
@@ -81,33 +76,26 @@ export default defineConfig(({ mode }) => ({
       "react/jsx-runtime": path.resolve(__dirname, "./node_modules/react/jsx-runtime"),
       "react-tiny-popover": path.resolve(__dirname, "./node_modules/react-tiny-popover"),
     },
-    dedupe: ['react', 'react-dom', 'react/jsx-runtime', 'react-tiny-popover'],
+    dedupe: [
+      'react',
+      'react-dom',
+      'react/jsx-runtime',
+      'react-tiny-popover',
+      '@radix-ui/react-toast',
+      '@livekit/components-react',
+    ],
   },
   optimizeDeps: {
     include: [
       'react',
       'react-dom',
+      'react/jsx-runtime',
       'react-router-dom',
       '@tanstack/react-query',
-      'react-tiny-popover'
+      '@radix-ui/react-toast',
+      '@livekit/components-react',
+      'hls.js',
     ],
-    exclude: [
-      // Excluindo os chunks que estão causando problemas na otimização
-      'chunk-IYFCVA3S',
-      'chunk-LUZMXLRO',
-      'chunk-PQFV53ZG',
-      'chunk-ICA7ZJMY',
-      'chunk-MX6Z5XVE',
-      'chunk-NR5',
-      'chunk-TM2',
-      'chunk-E3I',
-      'chunk-ZPU',
-      'chunk-EWW',
-      'chunk-PAV',
-      'chunk-3WC',
-      'chunk-ZMLY2J2T'
-    ],
-    force: true
   },
   build: {
     outDir: 'dist',

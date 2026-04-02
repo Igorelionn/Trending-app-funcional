@@ -1,0 +1,40 @@
+version: "3.9"
+
+services:
+  # ─────────────────────────────────────────────────────────
+  # MediaMTX — recebe WHIP (browser) e serve HLS para viewers
+  # ─────────────────────────────────────────────────────────
+  mediamtx:
+    image: bluenviron/mediamtx:latest
+    restart: unless-stopped
+    network_mode: host          # usa a rede do host para melhor performance
+    volumes:
+      - ./mediamtx.yml:/mediamtx.yml:ro
+    environment:
+      - MTX_LOGLEVEL=info
+
+  # ─────────────────────────────────────────────────────────
+  # Nginx — proxy reverso + SSL via Let's Encrypt (Certbot)
+  # ─────────────────────────────────────────────────────────
+  nginx:
+    image: nginx:alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+      - /var/www/certbot:/var/www/certbot:ro
+    depends_on:
+      - mediamtx
+
+  # ─────────────────────────────────────────────────────────
+  # Certbot — renova certificado SSL automaticamente
+  # ─────────────────────────────────────────────────────────
+  certbot:
+    image: certbot/certbot
+    volumes:
+      - /etc/letsencrypt:/etc/letsencrypt
+      - /var/www/certbot:/var/www/certbot
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot; sleep 12h & wait $${!}; done'"

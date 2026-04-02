@@ -68,6 +68,59 @@ export function useRealtimeSignals(
   
   const isInitializedRef = useRef(false);
   const hasTriedRecoveryRef = useRef(false);
+  
+  // 🔥 Armazenar código atual para detectar mudanças
+  const [currentCode, setCurrentCode] = useState<string | null>(() => {
+    try {
+      const prefs = localStorage.getItem('trader_preferences');
+      if (prefs) {
+        const parsed = JSON.parse(prefs);
+        return parsed.supporter_code || null;
+      }
+    } catch {
+      // Ignorar
+    }
+    return null;
+  });
+  
+  // 🔥 Verificar se o código mudou e forçar refresh
+  useEffect(() => {
+    const checkCodeChange = () => {
+      try {
+        const prefs = localStorage.getItem('trader_preferences');
+        let newCode: string | null = null;
+        if (prefs) {
+          const parsed = JSON.parse(prefs);
+          newCode = parsed.supporter_code || null;
+        }
+        
+        if (newCode !== currentCode) {
+          setCurrentCode(newCode);
+          // Código mudou - forçar refresh
+          if (isInitializedRef.current) {
+            realtimeSignalsService.refresh().catch(() => {});
+          }
+        }
+      } catch {
+        // Ignorar erro
+      }
+    };
+    
+    // Verificar a cada 2 segundos
+    const interval = setInterval(checkCodeChange, 2000);
+    
+    // Também escutar evento customizado
+    const handleCodeChange = () => {
+      checkCodeChange();
+    };
+    
+    window.addEventListener('supporter-code-changed', handleCodeChange);
+    
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('supporter-code-changed', handleCodeChange);
+    };
+  }, [currentCode]);
 
   // Inicializar serviço - AGUARDAR AUTENTICAÇÃO COMPLETAR
   useEffect(() => {

@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
-import { useNavigate, useLocation } from 'react-router-dom';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import Layout from "@/components/Layout";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
@@ -20,7 +20,6 @@ import { Sheet, SheetTrigger, SheetContent, SheetHeader, SheetTitle, SheetDescri
 import { Switch } from "@/components/ui/switch";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
-import { shouldShowStartLiveButton } from "@/utils/permissions";
 import { format } from "date-fns";
 import { useLiveStreamPermission } from "@/components/LiveStreamPermissionProvider";
 import { useLiveStream } from "@/contexts/LiveStreamContext";
@@ -137,16 +136,17 @@ interface MeetingData {
   userId: string;
   status: 'scheduled' | 'live' | 'ended' | 'deleted';
   thumbnail?: string;
-  meetingId?: string;  // Identificador da reunião
-  hostId?: string;     // ID do anfitrião da reunião
-  hostName?: string;   // Nome do anfitrião da reunião
-  hostAvatar?: string; // Avatar do anfitrião
-  startTime?: Date;    // Horário agendado
-  participantCount?: number; // Número de participantes
-  recordingId?: string; // ID da gravação
-  startedAt?: Date;    // Quando a reunião começou efetivamente
+  meetingUrl?: string;
+  meetingId?: string;
+  hostId?: string;
+  hostName?: string;
+  hostAvatar?: string;
+  startTime?: Date;
+  participantCount?: number;
+  recordingId?: string;
+  startedAt?: Date;
   createdAt?: Date;
-  isVerifiedHost?: boolean; // Anfitrião verificado
+  isVerifiedHost?: boolean;
 }
 
 // Adicionado: Interface MeetingModalProps que faltava
@@ -158,7 +158,6 @@ interface MeetingModalProps {
 
 // Modal para criar uma reunião
 const MeetingModal: React.FC<MeetingModalProps> = ({ open, onOpenChange, onMeetingCreated }) => {
-  // Definição local de texts para resolver referências no componente
   const texts = {
     modalTitle: "Nova Transmissão",
     modalDescription: "Configure sua transmissão e compartilhe seus conhecimentos ao vivo",
@@ -169,120 +168,26 @@ const MeetingModal: React.FC<MeetingModalProps> = ({ open, onOpenChange, onMeeti
   const [description, setDescription] = useState("");
   const [tags, setTags] = useState("");
   const [category, setCategory] = useState("");
+  const [meetingUrl, setMeetingUrl] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [mediaStream, setMediaStream] = useState<MediaStream | null>(null);
-  const [streamPreview, setStreamPreview] = useState(false);
-  const [isConfiguring, setIsConfiguring] = useState(false);
-  const [isMirrored, setIsMirrored] = useState(true);
   const [thumbnail, setThumbnail] = useState<string | null>(null);
   const [language, setLanguage] = useState("pt");
   
-  const videoPreviewRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  
   const { user } = useAuth();
-  const { createStream, generateStreamKey } = useLiveStream();
-  const navigate = useNavigate();
+  const { createStream } = useLiveStream();
   const { canStartLive } = useLiveStreamPermission();
   const { notify } = useInAppNotification();
   
-  // Iniciar visualização da câmera
-  const startPreview = async () => {
-    setIsConfiguring(true);
-    setError(null);
-    
-    // Declarar as variáveis no escopo da função para evitar problemas de escopo
-    let hasCamera = false;
-    let hasMicrophone = false;
-    
+  const isValidUrl = (url: string) => {
     try {
-      // Verificar dispositivos disponíveis primeiro
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      hasCamera = devices.some(device => device.kind === 'videoinput');
-      hasMicrophone = devices.some(device => device.kind === 'audioinput');
-      
-      if (!hasCamera && !hasMicrophone) {
-        throw new Error('Nenhuma câmera ou microfone foi encontrado no seu dispositivo');
-      }
-      
-      // Configurar restrições baseadas em dispositivos disponíveis
-      const constraints = {
-        video: hasCamera ? {
-          width: { ideal: 1280, max: 1920 },
-          height: { ideal: 720, max: 1080 }
-        } : false,
-        audio: hasMicrophone
-      };
-      
-      console.log('Tentando acessar mídia com restrições:', constraints);
-      
-      // Solicitar acesso à câmera e/ou microfone
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      
-      setMediaStream(stream);
-      setStreamPreview(true);
-      
-      // Importante: utilizamos setTimeout para garantir que o DOM seja atualizado antes de configurar o vídeo
-      setTimeout(() => {
-        // Associar o stream ao elemento de vídeo
-        if (videoPreviewRef.current) {
-          console.log('Configurando vídeo preview');
-          videoPreviewRef.current.srcObject = stream;
-          
-          // Garantir que o vídeo seja reproduzido imediatamente
-          videoPreviewRef.current.play().catch(e => {
-            console.error('Erro ao iniciar reprodução do vídeo:', e);
-          });
-        } else {
-          console.warn('Elemento de vídeo não encontrado');
-        }
-      }, 100);
-    } catch (err: unknown) {
-      console.error('Erro ao acessar dispositivos de mídia:', err);
-      
-      // Mensagens de erro mais amigáveis baseadas no tipo de erro
-      let mensagemErro = 'Verifique as permissões do navegador';
-      
-      if (err instanceof Error) {
-      if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
-        mensagemErro = 'Nenhum dispositivo de mídia encontrado. Conecte uma câmera ou microfone e tente novamente.';
-      } else if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-        mensagemErro = 'Permissão para acessar câmera/microfone negada. Verifique as configurações do seu navegador.';
-      } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
-        mensagemErro = 'Não foi possível acessar a câmera/microfone. O dispositivo pode estar sendo usado por outro aplicativo.';
-      } else if (err.name === 'OverconstrainedError') {
-        mensagemErro = 'As configurações solicitadas não são suportadas pelo seu dispositivo.';
-      } else if (err.name === 'TypeError') {
-        mensagemErro = 'Configuração inválida para acesso aos dispositivos.';
-        }
-      }
-      
-      setError(`Erro ao acessar câmera/microfone: ${mensagemErro}`);
-    } finally {
-      setIsConfiguring(false);
+      new URL(url);
+      return true;
+    } catch {
+      return false;
     }
-  };
-  
-  // Parar a visualização da câmera
-  const stopPreview = () => {
-    if (mediaStream) {
-      mediaStream.getTracks().forEach(track => track.stop());
-    }
-    
-    // Limpar o elemento de vídeo se existir
-    if (videoPreviewRef.current) {
-      videoPreviewRef.current.srcObject = null;
-    }
-    
-    setMediaStream(null);
-    setStreamPreview(false);
-    setIsConfiguring(false);
-    
-    // Não limpar a thumbnail aqui para manter a imagem se já tiver sido configurada
   };
 
-  // Função para lidar com o submit do formulário
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -290,29 +195,36 @@ const MeetingModal: React.FC<MeetingModalProps> = ({ open, onOpenChange, onMeeti
       setError('O título é obrigatório');
       return;
     }
+
+    if (!meetingUrl.trim()) {
+      setError('O link da sala é obrigatório');
+      return;
+    }
+
+    if (!isValidUrl(meetingUrl.trim())) {
+      setError('Insira um link válido (ex: https://meet.google.com/...)');
+      return;
+    }
     
     setIsSubmitting(true);
     setError(null);
     
     try {
-      console.log('Iniciando criação de transmissão...');
-      
-      // Processar as tags
       const processedTags = tags
         .split(',')
         .map(tag => tag.trim())
         .filter(tag => tag.length > 0);
       
-      // Criar dados básicos da transmissão
       const streamData = {
         title,
         description,
         thumbnailUrl: thumbnail || '',
+        meetingUrl: meetingUrl.trim(),
         tags: processedTags,
         language,
         category,
         streamSettings: {
-          webcamEnabled: !!mediaStream?.getVideoTracks().length,
+          webcamEnabled: false,
           screenShareEnabled: false,
           chatEnabled: true,
           hostName: user?.user_metadata?.name || user?.email || 'Anfitrião',
@@ -320,57 +232,44 @@ const MeetingModal: React.FC<MeetingModalProps> = ({ open, onOpenChange, onMeeti
         }
       };
       
-      console.log('Dados da transmissão:', streamData);
-      
-      // Criar a transmissão
       const newStream = await createStream(streamData);
       
       if (!newStream) {
         throw new Error('Falha ao criar transmissão');
       }
-      
-      console.log('Transmissão criada:', newStream);
         
-      // Converter para o formato esperado
-        const meetingData: MeetingData = {
-          id: newStream.id,
-          title: newStream.title || '',
-          description: newStream.description || '',
-          tags: Array.isArray(newStream.tags) ? newStream.tags : [],
-          userId: newStream.userId || '',
-          status: (newStream.status || 'scheduled') as 'scheduled' | 'live' | 'ended' | 'deleted',
-          thumbnail: newStream.thumbnailUrl || '',
-          meetingId: newStream.id,
-          hostId: newStream.userId || '',
-          hostName: String(streamData.streamSettings?.hostName || 'Anfitrião'),
-          hostAvatar: String(streamData.streamSettings?.hostAvatar || ''),
-          participantCount: 0,
-          startedAt: newStream.startedAt ? new Date(newStream.startedAt) : undefined,
-          startTime: newStream.scheduledStart ? new Date(newStream.scheduledStart) : undefined,
-          createdAt: newStream.createdAt ? new Date(newStream.createdAt) : new Date(),
-          isVerifiedHost: true
-        };
+      const meetingData: MeetingData = {
+        id: newStream.id,
+        title: newStream.title || '',
+        description: newStream.description || '',
+        tags: Array.isArray(newStream.tags) ? newStream.tags : [],
+        userId: newStream.userId || '',
+        status: (newStream.status || 'live') as 'scheduled' | 'live' | 'ended' | 'deleted',
+        thumbnail: newStream.thumbnailUrl || '',
+        meetingUrl: newStream.meetingUrl || '',
+        meetingId: newStream.id,
+        hostId: newStream.userId || '',
+        hostName: String(streamData.streamSettings?.hostName || 'Anfitrião'),
+        hostAvatar: String(streamData.streamSettings?.hostAvatar || ''),
+        participantCount: 0,
+        startedAt: newStream.startedAt ? new Date(newStream.startedAt) : undefined,
+        startTime: newStream.scheduledStart ? new Date(newStream.scheduledStart) : undefined,
+        createdAt: newStream.createdAt ? new Date(newStream.createdAt) : new Date(),
+        isVerifiedHost: true
+      };
         
-      // Parar o preview de mídia antes de fechar o modal
-      stopPreview();
-      
-      // Notificar sucesso
       onMeetingCreated(meetingData);
       onOpenChange(false);
-      // Mostrar mensagem de sucesso
-      console.log("Transmissão criada com sucesso");
-      
-      // Redirecionar para a página do streamer
-      navigate(`/streamer/${newStream.id}`);
+
+      notify({
+        title: "Transmissão criada",
+        description: "Sua transmissão está ao vivo!",
+        type: "live"
+      });
       
     } catch (err: unknown) {
-      console.error('Erro ao criar transmissão:', err);
-      
       const errorMessage = err instanceof Error ? err.message : 'Erro ao criar transmissão';
       setError(errorMessage);
-      
-      // Mostrar mensagem de erro
-      console.error(errorMessage);
     } finally {
       setIsSubmitting(false);
     }
@@ -410,7 +309,7 @@ const MeetingModal: React.FC<MeetingModalProps> = ({ open, onOpenChange, onMeeti
         setThumbnail(loadEvent.target.result as string);
         notify({
           title: "Sucesso",
-          description: "Thumbnail carregada com sucesso!",
+          description: "Thumbnail carregada!",
           type: "live"
         });
       }
@@ -454,7 +353,7 @@ const MeetingModal: React.FC<MeetingModalProps> = ({ open, onOpenChange, onMeeti
           setThumbnail(loadEvent.target.result as string);
           notify({
             title: "Sucesso",
-            description: "Thumbnail carregada com sucesso!",
+            description: "Thumbnail carregada!",
             type: "live"
           });
       }
@@ -484,83 +383,24 @@ const MeetingModal: React.FC<MeetingModalProps> = ({ open, onOpenChange, onMeeti
         
         <form onSubmit={handleSubmit} className="p-5 overflow-y-auto max-h-[calc(85vh-80px)]">
           <div className="grid grid-cols-1 lg:grid-cols-[2fr,1fr] gap-4">
-            {/* Coluna esquerda - Preview da câmera GRANDE */}
             <div className="space-y-3">
-              {/* Preview da câmera - GRANDE */}
+              {/* Link da sala */}
               <div className="bg-zinc-950/40 p-3 rounded-lg border border-zinc-900/40">
                 <h3 className="font-medium text-zinc-300 mb-2 flex items-center gap-2 text-xs">
-                  <Camera className="h-3.5 w-3.5 text-zinc-500" />
-                  Câmera
+                  <LinkIcon className="h-3.5 w-3.5 text-zinc-500" />
+                  Link da sala
                 </h3>
-                
-                {streamPreview ? (
-                  <div className="relative">
-                    {mediaStream && mediaStream.getVideoTracks().length > 0 ? (
-                      <div className="relative w-full aspect-video bg-black rounded-md overflow-hidden group">
-                        <video
-                          ref={videoPreviewRef}
-                          autoPlay
-                          playsInline
-                          muted
-                          controls={false}
-                          className={`w-full h-full object-cover ${isMirrored ? '-scale-x-100' : ''}`}
-                        />
-                        <div className="absolute top-2 right-2 bg-black/70 backdrop-blur-sm px-2 py-1 rounded text-[10px] flex items-center gap-1">
-                          <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-                          Ativa
-                        </div>
-                        <div className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="icon"
-                            className="h-7 w-7 bg-black/70 hover:bg-black/90 border-zinc-800/50 text-white"
-                            onClick={() => setIsMirrored(!isMirrored)}
-                          >
-                            <RefreshCw className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="icon"
-                            className="h-7 w-7 bg-black/70 hover:bg-black/90 border-zinc-800/50 text-red-400"
-                            onClick={stopPreview}
-                          >
-                            <X className="h-3.5 w-3.5" />
-                          </Button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="w-full aspect-video bg-black rounded-md flex items-center justify-center border border-zinc-900/40">
-                        <div className="text-center">
-                          <VideoOff className="h-8 w-8 text-zinc-700 mx-auto mb-2" />
-                          <p className="text-xs text-zinc-500">Apenas áudio</p>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div 
-                    className="group w-full aspect-video border border-dashed border-zinc-900/50 bg-zinc-950/20 hover:bg-zinc-950/30 rounded-md flex flex-col items-center justify-center gap-2 transition-all cursor-pointer"
-                    onClick={() => !isConfiguring && startPreview()}
-                  >
-                    {isConfiguring ? (
-                      <>
-                        <RefreshCw className="h-8 w-8 animate-spin text-zinc-600" />
-                        <p className="text-zinc-500 text-xs">Configurando câmera...</p>
-                      </>
-                    ) : (
-                      <>
-                        <Camera className="h-8 w-8 text-zinc-700 group-hover:text-zinc-500" />
-                        <p className="text-zinc-500 text-xs">Clique para ativar a câmera</p>
-                        <p className="text-zinc-600 text-[10px]">Visualize sua transmissão antes de iniciar</p>
-                      </>
-                    )}
-                  </div>
-                )}
+                <Input
+                  value={meetingUrl}
+                  onChange={(e) => setMeetingUrl(e.target.value)}
+                  placeholder="https://meet.google.com/abc-defg-hij"
+                  className="bg-zinc-950/50 border-zinc-900/50 text-zinc-300 h-9 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/20"
+                  required
+                />
+                <p className="text-zinc-600 text-[10px] mt-1.5">Cole o link do Google Meet, Zoom, ou outra plataforma</p>
               </div>
-              
-              {/* Thumbnail - proporção 16:9 real */}
+
+              {/* Thumbnail */}
               <div className="bg-zinc-950/40 p-3 rounded-lg border border-zinc-900/40">
                 <h3 className="font-medium text-zinc-300 mb-2 flex items-center gap-2 text-xs">
                   <Image className="h-3.5 w-3.5 text-zinc-500" />
@@ -794,7 +634,6 @@ const MeetingComponent: React.FC<{ stream: MeetingData }> = ({ stream }) => {
       }, 500); // Reduzido para carregar mais rápido
       
     } catch (error) {
-      console.error("Erro ao inicializar conexão de vídeo:", error);
       setConnectionStatus('error');
       notify({
         title: "Erro na conexão",
@@ -849,12 +688,6 @@ const MeetingComponent: React.FC<{ stream: MeetingData }> = ({ stream }) => {
                         
         setCurrentHostAvatar(avatarUrl);
         setCurrentHostName(userName);
-        
-        console.log('✅ Perfil atualizado em tempo real:', {
-          avatarUrl,
-          userName,
-          userMetadata: user.user_metadata
-        });
       }
     };
     
@@ -943,7 +776,6 @@ const MeetingComponent: React.FC<{ stream: MeetingData }> = ({ stream }) => {
         setIsScreenSharing(false);
       }
     } catch (error) {
-      console.error("Erro ao compartilhar tela:", error);
       notify({
         title: "Erro no compartilhamento",
         description: "Não foi possível compartilhar sua tela",
@@ -1157,7 +989,8 @@ const MeetingComponent: React.FC<{ stream: MeetingData }> = ({ stream }) => {
                   <Avatar className="h-8 w-8 ring-2 ring-purple-500/50 shadow-lg shadow-purple-500/20">
                     <AvatarImage 
                       src={currentHostAvatar || "/avatars/avatar-1.png"} 
-                      alt={currentHostName || "Anfitrião"} 
+                      alt={currentHostName || "Anfitrião"}
+                      className="object-cover w-full h-full"
                     />
                     <AvatarFallback className="bg-gradient-to-br from-purple-600 to-purple-800 text-white text-xs font-bold">
                       {currentHostName ? currentHostName.charAt(0).toUpperCase() : 'A'}
@@ -1187,7 +1020,11 @@ const MeetingComponent: React.FC<{ stream: MeetingData }> = ({ stream }) => {
               <div className="group hover:bg-zinc-900/30 rounded-lg p-2 -mx-2 transition-colors duration-150 animate-in fade-in slide-in-from-bottom-2">
                 <div className="flex items-start gap-2.5">
                   <Avatar className="h-8 w-8 ring-1 ring-zinc-700/50">
-                    <AvatarImage src="https://i.pravatar.cc/150?img=12" alt="João" />
+                    <AvatarImage 
+                      src="https://i.pravatar.cc/150?img=12" 
+                      alt="João"
+                      className="object-cover w-full h-full"
+                    />
                     <AvatarFallback className="bg-gradient-to-br from-blue-600 to-blue-800 text-white text-xs font-bold">
                       JS
                     </AvatarFallback>
@@ -1210,7 +1047,11 @@ const MeetingComponent: React.FC<{ stream: MeetingData }> = ({ stream }) => {
               <div className="group hover:bg-zinc-900/30 rounded-lg p-2 -mx-2 transition-colors duration-150 animate-in fade-in slide-in-from-bottom-2">
                 <div className="flex items-start gap-2.5">
                   <Avatar className="h-8 w-8 ring-2 ring-amber-500/50 shadow-lg shadow-amber-500/20">
-                    <AvatarImage src="https://i.pravatar.cc/150?img=20" alt="Maria" />
+                    <AvatarImage 
+                      src="https://i.pravatar.cc/150?img=20" 
+                      alt="Maria"
+                      className="object-cover w-full h-full"
+                    />
                     <AvatarFallback className="bg-gradient-to-br from-amber-600 to-amber-800 text-white text-xs font-bold">
                       MC
                     </AvatarFallback>
@@ -1234,7 +1075,11 @@ const MeetingComponent: React.FC<{ stream: MeetingData }> = ({ stream }) => {
               <div className="group hover:bg-zinc-900/30 rounded-lg p-2 -mx-2 transition-colors duration-150 animate-in fade-in slide-in-from-bottom-2">
                 <div className="flex items-start gap-2.5">
                   <Avatar className="h-8 w-8 ring-1 ring-zinc-700/50">
-                    <AvatarImage src="https://i.pravatar.cc/150?img=33" alt="Carlos" />
+                    <AvatarImage 
+                      src="https://i.pravatar.cc/150?img=33" 
+                      alt="Carlos"
+                      className="object-cover w-full h-full"
+                    />
                     <AvatarFallback className="bg-gradient-to-br from-green-600 to-green-800 text-white text-xs font-bold">
                       CF
                     </AvatarFallback>
@@ -1267,7 +1112,11 @@ const MeetingComponent: React.FC<{ stream: MeetingData }> = ({ stream }) => {
               <div className="group hover:bg-zinc-900/30 rounded-lg p-2 -mx-2 transition-colors duration-150 animate-in fade-in slide-in-from-bottom-2">
                 <div className="flex items-start gap-2.5">
                   <Avatar className="h-8 w-8 ring-1 ring-zinc-700/50">
-                    <AvatarImage src="https://i.pravatar.cc/150?img=45" alt="Pedro" />
+                    <AvatarImage 
+                      src="https://i.pravatar.cc/150?img=45" 
+                      alt="Pedro"
+                      className="object-cover w-full h-full"
+                    />
                     <AvatarFallback className="bg-gradient-to-br from-indigo-600 to-indigo-800 text-white text-xs font-bold">
                       PS
                     </AvatarFallback>
@@ -1439,11 +1288,10 @@ const MeetingCard: React.FC<{ meeting: MeetingData; onClick: () => void }> = ({ 
 
   return (
     <div 
-      className="group flex flex-col overflow-hidden bg-gradient-to-br from-gray-950 to-black rounded-xl border border-gray-800/30 hover:border-gray-700/50 shadow-lg shadow-black/60 transition-all duration-500 cursor-pointer transform hover:-translate-y-1"
+      className="group flex flex-col overflow-hidden bg-gradient-to-br from-gray-950 to-black rounded-xl border border-gray-800/30 hover:border-gray-700/50 shadow-lg shadow-black/60 transition-all duration-500 cursor-pointer transform hover:-translate-y-1 h-full"
       onClick={onClick}
     >
-      {/* Thumbnail com overlay e efeitos */}
-      <div className="relative aspect-video overflow-hidden bg-gray-950">
+      <div className="relative aspect-video overflow-hidden bg-gray-950 flex-shrink-0">
         {thumbnail ? (
           <img 
             src={thumbnail} 
@@ -1491,22 +1339,18 @@ const MeetingCard: React.FC<{ meeting: MeetingData; onClick: () => void }> = ({ 
         </div>
       </div>
       
-      {/* Conteúdo do card */}
-      <div className="p-4 flex flex-col flex-grow">
-        <h3 className="text-white font-medium line-clamp-2 transition-colors mb-1">{title}</h3>
+      <div className="p-4 flex flex-col flex-grow min-h-0">
+        <h3 className="text-white font-medium line-clamp-2 transition-colors mb-1 break-words">{title}</h3>
         
-        {/* Descrição */}
         {meeting.description && (
-          <p className="text-gray-400 text-sm line-clamp-2 mb-2 leading-relaxed">
+          <p className="text-gray-400 text-sm line-clamp-2 mb-2 leading-relaxed break-words">
             {meeting.description}
           </p>
         )}
         
-        {/* Tags, se existirem */}
         {meeting.tags && meeting.tags.length > 0 && (
           <div className="flex flex-wrap gap-1.5 mt-2 mb-3">
             {(() => {
-              // Verificar se tags é um array ou string
               const tagsArray = Array.isArray(meeting.tags) 
                 ? meeting.tags 
                 : (typeof meeting.tags === 'string' 
@@ -1515,7 +1359,7 @@ const MeetingCard: React.FC<{ meeting: MeetingData; onClick: () => void }> = ({ 
                   );
               
               return tagsArray.slice(0, 3).map((tag, index) => (
-              <div key={index} className="px-1.5 py-0.5 bg-gray-800/50 rounded-md text-[10px] text-gray-400">
+              <div key={index} className="px-1.5 py-0.5 bg-gray-800/50 rounded-md text-[10px] text-gray-400 truncate max-w-[80px]">
                 #{tag}
               </div>
               ));
@@ -1547,20 +1391,19 @@ const MeetingCard: React.FC<{ meeting: MeetingData; onClick: () => void }> = ({ 
               </div>
             )}
           </div>
-          <div className="flex-grow">
-            <p className="text-sm text-white/90 font-medium line-clamp-1 flex items-center">
+          <div className="flex-1 min-w-0">
+            <p className="text-sm text-white/90 font-medium truncate flex items-center">
               {hostName || 'Anônimo'}
               {meeting.isVerifiedHost && (
-                <span className="ml-1.5 bg-blue-500 p-0.5 rounded-full flex items-center justify-center">
+                <span className="ml-1.5 bg-blue-500 p-0.5 rounded-full flex items-center justify-center flex-shrink-0">
                   <CheckIcon className="h-2.5 w-2.5 text-white" />
                 </span>
               )}
             </p>
             
-            {/* Status adicional */}
             {status === 'live' && (
               <p className="text-[11px] text-indigo-400 flex items-center gap-1 mt-0.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse"></span>
+                <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse flex-shrink-0"></span>
                 Transmitindo agora
               </p>
             )}
@@ -1575,9 +1418,18 @@ const MeetingCard: React.FC<{ meeting: MeetingData; onClick: () => void }> = ({ 
 export default function Live() {
   const auth = useAuth();
   const { language } = useLanguage();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [meetings, setMeetings] = useState<MeetingData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadingTimeout, setLoadingTimeout] = useState(false);
+  
+  // Ler a aba da URL ou usar 'live' como padrão
+  const activeTab = searchParams.get('tab') || 'live';
+  
+  // Função para mudar a aba e atualizar a URL
+  const handleTabChange = (value: string) => {
+    setSearchParams({ tab: value });
+  };
   const [openModal, setOpenModal] = useState(false);
   const [selectedMeeting, setSelectedMeeting] = useState<MeetingData | null>(null);
   const [showEndedMeetings, setShowEndedMeetings] = useState(false);
@@ -1593,6 +1445,17 @@ export default function Live() {
   
   const fetchStreamsRef = useRef(fetchStreams);
   useEffect(() => { fetchStreamsRef.current = fetchStreams; }, [fetchStreams]);
+  
+  // Memoizar filtros para evitar recálculos desnecessários
+  const liveMeetings = useMemo(() => 
+    meetings.filter(m => m.status === 'live'), 
+    [meetings]
+  );
+  
+  const scheduledMeetings = useMemo(() => 
+    meetings.filter(m => m.status === 'scheduled'), 
+    [meetings]
+  );
   
   // Função para obter textos traduzidos baseado no idioma atual
   const getTexts = () => {
@@ -1651,18 +1514,12 @@ export default function Live() {
   const texts = getTexts();
   
   const loadMeetings = useCallback(async () => {
-    console.log('[Live] loadMeetings called, auth state:', { 
-      userId: auth.user?.id?.substring(0, 8), 
-      authLoading: auth.loading 
-    });
     setIsLoading(true);
     
     try {
       const streams = await fetchStreamsRef.current();
-      console.log('[Live] fetchStreams returned:', streams?.length, 'streams');
       
       if (streams && Array.isArray(streams)) {
-        // Converter streams para o formato MeetingData
         const meetingsData: MeetingData[] = streams.map(stream => ({
           id: stream.id,
           title: stream.title,
@@ -1676,10 +1533,11 @@ export default function Live() {
           userId: stream.userId,
           status: stream.status as 'scheduled' | 'live' | 'ended' | 'deleted',
           thumbnail: stream.thumbnailUrl || '',
+          meetingUrl: stream.meetingUrl || '',
           meetingId: stream.id,
           hostId: stream.userId,
-          hostName: String(stream.streamSettings?.hostName || 'Streamer'),
-          hostAvatar: String(stream.streamSettings?.hostAvatar || ''),
+          hostName: String(stream.streamSettings?.hostName || stream.streamerName || 'Streamer'),
+          hostAvatar: String(stream.streamSettings?.hostAvatar || stream.streamerAvatar || ''),
           participantCount: stream.viewerCount || 0,
           startedAt: stream.startedAt ? new Date(stream.startedAt) : undefined,
           startTime: stream.scheduledStart ? new Date(stream.scheduledStart) : undefined,
@@ -1691,7 +1549,6 @@ export default function Live() {
         // Transmissões carregadas (silenciado)
       }
     } catch (error) {
-      console.error('Erro ao carregar transmissões:', error);
       notify({
         title: "Erro",
         description: "Erro ao carregar transmissões. Tente novamente mais tarde.",
@@ -1702,7 +1559,7 @@ export default function Live() {
       setIsLoading(false);
       setLoadingTimeout(true);
     }
-  }, []);
+  }, [notify]); // Remover auth.user como dependência para evitar reloads desnecessários
   
   useEffect(() => {
     if (auth.loading) return;
@@ -1714,9 +1571,10 @@ export default function Live() {
       setLoadingTimeout(true);
     }, 5000);
     
+    // Otimização: Aumentar intervalo para 30 segundos (ao invés de 10)
     const intervalId = setInterval(() => {
       loadMeetings();
-    }, 10000);
+    }, 30000);
     
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
@@ -1739,19 +1597,18 @@ export default function Live() {
     try {
       const allStreamers = await followService.getAllStreamers(auth.user?.id);
       setStreamers(allStreamers);
-    } catch (error) {
-      console.error('Erro ao carregar streamers:', error);
+    } catch {
     } finally {
       setLoadingStreamers(false);
     }
   }, [auth.user?.id]);
 
-  // Carregar streamers quando a aba streamers for acessada
+  // Carregar streamers apenas quando a aba streamers for acessada
   useEffect(() => {
-    if (auth.user) {
+    if (auth.user && activeTab === 'streamers' && streamers.length === 0) {
       loadStreamers();
     }
-  }, [auth.user, loadStreamers]);
+  }, [auth.user, activeTab, loadStreamers]);
 
   // Função para seguir/deixar de seguir
   const handleToggleFollow = async (streamerId: string, currentlyFollowing: boolean) => {
@@ -1799,7 +1656,6 @@ export default function Live() {
         }
       }
     } catch (error) {
-      console.error('Erro ao seguir/deixar de seguir:', error);
       notify({
         title: "Erro",
         description: "Erro ao atualizar. Tente novamente.",
@@ -1835,20 +1691,17 @@ export default function Live() {
     });
   };
   
-  // Função para selecionar uma reunião
   const handleSelectMeeting = (meeting: MeetingData) => {
-    if (meeting.status === 'live') {
-      // Verificar se o usuário é o dono da transmissão
+    if (meeting.meetingUrl) {
+      window.open(meeting.meetingUrl, '_blank', 'noopener,noreferrer');
+    } else if (meeting.status === 'live') {
       if (meeting.userId === auth.user?.id) {
-        // Se for o dono, vai para o dashboard do streamer
         navigate(`/streamer/${meeting.id}`);
       } else {
-        // Se não for o dono, vai para a página de visualização
         navigate(`/watch/${meeting.id}`);
       }
     } else {
       setSelectedMeeting(meeting);
-      // Exibir detalhes da reunião agendada
     }
   };
 
@@ -1934,7 +1787,7 @@ export default function Live() {
         </div>
                   
         {/* Abas para as transmissões */}
-        <Tabs defaultValue="live" className="w-full">
+        <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
           <div className="flex justify-between items-center mb-4">
             <TabsList className="bg-black/60 border border-gray-900/30 p-1 rounded-xl backdrop-blur-sm">
               <TabsTrigger value="live" className="rounded-lg data-[state=active]:bg-black/80 data-[state=active]:text-gray-200 text-gray-500 hover:text-gray-300 px-4 py-2 transition-all duration-200">
@@ -1987,12 +1840,15 @@ export default function Live() {
                   <div className="animate-spin w-12 h-12 border-4 border-gray-800/40 border-t-gray-500 rounded-full"></div>
                 </div>
                 
-                {/* Texto de carregamento */}
+                {/* Texto de carregamento dinâmico baseado na aba */}
                 <h3 className="text-2xl font-semibold mb-4 bg-gradient-to-r from-white via-gray-200 to-gray-400 bg-clip-text text-transparent">
-                  {texts.loadingTitle}
+                  {activeTab === 'streamers' ? 'Carregando streamers' : texts.loadingTitle}
                 </h3>
                 <p className="text-gray-500 text-base">
-                  {texts.loadingMessage}
+                  {activeTab === 'streamers' 
+                    ? 'Aguarde enquanto buscamos os streamers disponíveis...' 
+                    : texts.loadingMessage
+                  }
                 </p>
               </div>
               
@@ -2004,11 +1860,9 @@ export default function Live() {
           ) : (
             <>
               <TabsContent value="live" className="space-y-4">
-                {meetings.filter(m => m.status === 'live').length > 0 ? (
+                {liveMeetings.length > 0 ? (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {meetings
-                      .filter(meeting => meeting.status === 'live')
-                      .map(meeting => (
+                    {liveMeetings.map(meeting => (
                         <MeetingCard
                           key={meeting.id}
                           meeting={meeting}
@@ -2069,59 +1923,78 @@ export default function Live() {
               
               <TabsContent value="streamers" className="space-y-4">
                 {loadingStreamers ? (
-                  <div className="flex items-center justify-center py-12">
-                    <Loader2 className="h-6 w-6 animate-spin text-gray-500" />
+                  <div className="relative flex flex-col items-center justify-center py-24 px-12 text-center bg-black rounded-2xl border border-gray-900/30 backdrop-blur-md overflow-hidden min-h-80">
+                    {/* Efeitos de iluminação de fundo */}
+                    <div className="absolute inset-0 bg-gradient-to-br from-gray-950/40 via-black to-gray-950/40"></div>
+                    <div className="absolute top-0 left-1/4 w-72 h-72 bg-gray-500/3 rounded-full blur-3xl"></div>
+                    <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-gray-600/3 rounded-full blur-3xl"></div>
+                    
+                    {/* Grade sutil de fundo */}
+                    <div className="absolute inset-0 bg-grid-white/[0.005] [mask-image:radial-gradient(ellipse_at_center,transparent_20%,black)]"></div>
+                    
+                    <div className="relative z-10 flex flex-col items-center">
+                      {/* Spinner simples */}
+                      <div className="relative mb-8">
+                        <div className="animate-spin w-12 h-12 border-4 border-gray-800/40 border-t-gray-500 rounded-full"></div>
+                      </div>
+                      
+                      {/* Texto de carregamento */}
+                      <h3 className="text-2xl font-semibold mb-4 bg-gradient-to-r from-white via-gray-200 to-gray-400 bg-clip-text text-transparent">
+                        Carregando streamers
+                      </h3>
+                      <p className="text-gray-500 text-base">
+                        Aguarde enquanto buscamos os streamers disponíveis...
+                      </p>
+                    </div>
+                    
+                    {/* Borda com gradiente sutil */}
+                    <div className="absolute inset-0 rounded-2xl bg-gradient-to-r from-gray-600/5 via-transparent to-gray-600/5 p-px">
+                      <div className="w-full h-full bg-black/10 rounded-2xl"></div>
+                    </div>
                   </div>
                 ) : streamers.length > 0 ? (
-                  <div className="space-y-3">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {streamers.map(streamer => (
                       <div
                         key={streamer.id}
-                        onClick={() => navigate(`/streamer/${streamer.id}`)}
-                        className="bg-black/20 border border-gray-900/30 rounded-lg p-4 cursor-pointer hover:bg-black/30 hover:border-gray-800/50 transition-all"
+                        onClick={() => navigate(`/profile/${streamer.id}`)}
+                        className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl p-5 cursor-pointer hover:bg-white/10 hover:border-white/20 transition-all group"
                       >
                         <div className="flex items-center gap-4">
-                          {/* Avatar */}
-                          <Avatar className="h-12 w-12 ring-1 ring-gray-800/50">
-                            <AvatarImage src={streamer.avatar_url || undefined} />
-                            <AvatarFallback className="bg-gray-900/50 text-gray-400 text-sm font-light">
+                          <Avatar className="h-14 w-14 flex-shrink-0 ring-2 ring-white/10 group-hover:ring-white/20 transition-all overflow-hidden">
+                            <AvatarImage 
+                              src={streamer.avatar_url || undefined}
+                              className="object-cover w-full h-full"
+                            />
+                            <AvatarFallback className="bg-black/50 text-white/80 text-base font-medium">
                               {streamer.display_name[0]?.toUpperCase() || 'S'}
                             </AvatarFallback>
                           </Avatar>
 
-                          {/* Info */}
                           <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 mb-1">
-                              <h3 className="text-sm font-normal text-gray-200 truncate">
-                                {streamer.display_name}
-                              </h3>
-                              <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 bg-gray-900/50 text-gray-500 border-gray-800/50 hover:bg-gray-900/50 cursor-default">
-                                Streamer
-                              </Badge>
-                            </div>
+                            <h3 className="text-base font-medium text-white truncate mb-1">
+                              {streamer.display_name}
+                            </h3>
                             
-                            {/* Stats em linha */}
-                            <div className="flex items-center gap-4 text-[11px] text-gray-500">
-                              <div className="flex items-center gap-1">
-                                <Users className="h-3 w-3" />
-                                <span>{streamer.followers_count}</span>
-                              </div>
-                              <div className="flex items-center gap-1">
-                                <Heart className="h-3 w-3" />
-                                <span>{streamer.supporters_count}</span>
-                              </div>
+                            <div className="flex items-center gap-1.5 text-xs text-white/50">
+                              <Users className="h-3.5 w-3.5 flex-shrink-0" />
+                              <span className="truncate">
+                                {streamer.followers_count} {streamer.followers_count === 1 ? 'seguidor' : 'seguidores'}
+                              </span>
                             </div>
                           </div>
 
-                          {/* Botão Seguir */}
                           {streamer.id !== auth.user?.id && (
                             <button
-                              onClick={() => handleToggleFollow(streamer.id, streamer.is_following || false)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleToggleFollow(streamer.id, streamer.is_following || false);
+                              }}
                               disabled={followingInProgress.has(streamer.id)}
-                              className={`px-3 py-1.5 rounded-lg text-[11px] font-normal transition-colors ${
+                              className={`px-4 py-2 rounded-lg text-xs font-medium transition-all flex-shrink-0 ${
                                 streamer.is_following
-                                  ? 'bg-gray-900/50 text-gray-400 border border-gray-800/50'
-                                  : 'bg-white/5 text-gray-300 border border-gray-800/30 hover:bg-white/10'
+                                  ? 'bg-white/5 text-white/60 border border-white/10 hover:bg-white/10'
+                                  : 'bg-white text-black hover:bg-white/90'
                               } ${followingInProgress.has(streamer.id) ? 'opacity-50 cursor-not-allowed' : ''}`}
                             >
                               {followingInProgress.has(streamer.id) ? (

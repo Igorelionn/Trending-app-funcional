@@ -1,4 +1,4 @@
-import { Sidebar, SidebarContent, SidebarHeader, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
+import { Sidebar, SidebarContent, SidebarHeader, SidebarProvider, SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { 
@@ -12,7 +12,11 @@ import {
   HelpCircle,
   MessageSquare,
   Video,
-  Shield
+  Shield,
+  Trophy,
+  Users,
+  ChevronLeft,
+  ChevronRight
 } from "lucide-react";
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Logo } from "@/components/ui/logo";
@@ -56,21 +60,178 @@ const NotificationBadge = ({ count }: { count: number }) => {
   );
 };
 
+// ─── Componente interno: usa useSidebar (precisa estar dentro do SidebarProvider) ───
+interface NavContentProps {
+  navigate: (path: string) => void;
+  location: { pathname: string; search: string };
+  t: (key: string) => string;
+  isAdmin: boolean;
+  liveStreamsCount: number;
+  unreadCount: number;
+  userName: string;
+  avatarUrl: string | null;
+}
+
+function NavSidebarContent({
+  navigate, location, t, isAdmin, liveStreamsCount, unreadCount,
+}: NavContentProps) {
+  const { state, toggleSidebar } = useSidebar();
+  const isCollapsed = state === "collapsed";
+
+  const isActive = (path: string) => location.pathname === path;
+
+  const NavBtn = ({
+    icon: Icon,
+    label,
+    path,
+    badge,
+  }: {
+    icon: React.ElementType;
+    label: React.ReactNode;
+    path: string;
+    badge?: React.ReactNode;
+  }) => (
+    <Button
+      variant="ghost"
+      className={cn(
+        "w-full justify-start gap-3 py-3 text-sm font-medium transition-all",
+        "hover:bg-white/5 text-white/80 hover:text-white",
+        isActive(path)
+          ? "bg-white/5 text-white border-l-2 border-white/60 pl-3"
+          : "pl-4",
+        isCollapsed && "justify-center pl-0 pr-0"
+      )}
+      onClick={() => navigate(path)}
+    >
+      <Icon className="h-4 w-4 opacity-70 shrink-0" />
+      {!isCollapsed && <span className="truncate">{label}</span>}
+      {!isCollapsed && badge}
+    </Button>
+  );
+
+  return (
+    <>
+      {/* Header: logo + perfil — ocultos quando recolhido */}
+      <SidebarHeader className={cn(
+        "flex items-center p-4 transition-all",
+        isCollapsed ? "justify-center" : "justify-between"
+      )}>
+        {!isCollapsed && (
+          <div className="flex items-center gap-2">
+            <Logo />
+          </div>
+        )}
+        {!isCollapsed && <ProfileMenu />}
+      </SidebarHeader>
+
+      <SidebarContent className="p-4 flex flex-col h-[calc(100vh-65px)] overflow-visible">
+        <nav className="space-y-0.5">
+          <NavBtn icon={LayoutDashboard} label={t('nav.dashboard')} path="/" />
+          <NavBtn icon={Signal} label={t('nav.signals') || 'Trades'} path="/signals" />
+          <NavBtn icon={Newspaper} label={t('nav.news') || 'Notícias'} path="/news" />
+          <NavBtn icon={HelpCircle} label={t('nav.instructions')} path="/instructions" />
+          <NavBtn
+            icon={Video}
+            label={t('nav.live') || 'Ao Vivo'}
+            path="/live"
+            badge={
+              liveStreamsCount > 0 && (
+                <span className="ml-auto relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500" />
+                </span>
+              )
+            }
+          />
+          <NavBtn icon={Trophy} label="Ranking" path="/ranking" />
+          <NavBtn icon={Users} label="Social" path="/social" />
+        </nav>
+
+        {!isCollapsed && (
+          <div className="my-4 flex items-center gap-2 px-2">
+            <div className="h-px flex-1 bg-white/5" />
+            <span className="text-[10px] uppercase text-white/30 font-medium">
+              {t('nav.settings.notifications') || 'Área do Usuário'}
+            </span>
+            <div className="h-px flex-1 bg-white/5" />
+          </div>
+        )}
+        {isCollapsed && <div className="my-4 h-px bg-white/5" />}
+
+        <nav className="space-y-0.5">
+          <Button
+            variant="ghost"
+            className={cn(
+              "w-full justify-start gap-3 py-3 text-sm font-medium transition-all notification-button-group relative",
+              "hover:bg-white/5 text-white/80 hover:text-white",
+              isActive('/notifications') && !location.search.includes('filter=read')
+                ? "bg-white/5 text-white border-l-2 border-white/60 pl-3"
+                : "pl-4",
+              isCollapsed && "justify-center pl-0 pr-0"
+            )}
+            onClick={() => navigate('/notifications')}
+          >
+            <div className="relative shrink-0">
+              <Bell className="h-4 w-4 opacity-70" />
+              {unreadCount > 0 && (
+                <span className="absolute -top-1 -right-1 h-2 w-2 bg-red-500 rounded-full animate-pulse" />
+              )}
+            </div>
+            {!isCollapsed && (
+              <>
+                <span>{t('nav.notifications') || 'Notificações'}</span>
+                {unreadCount > 0 && <NotificationBadge count={unreadCount} />}
+              </>
+            )}
+          </Button>
+
+          <NavBtn icon={Settings} label={t('nav.settings')} path="/settings" />
+          <NavBtn icon={MessageSquare} label={t('nav.support') || 'Suporte'} path="/support" />
+          {isAdmin && <NavBtn icon={Shield} label="Admin" path="/admin" />}
+        </nav>
+
+        {/* Botão de colapso — fixo no fundo da sidebar */}
+        <div className="mt-auto pt-4 border-t border-white/5">
+          <Button
+            variant="ghost"
+            onClick={toggleSidebar}
+            className={cn(
+              "w-full py-2.5 text-white/40 hover:text-white hover:bg-white/5 transition-all",
+              isCollapsed ? "justify-center px-0" : "justify-start gap-3 pl-4"
+            )}
+            title={isCollapsed ? "Expandir sidebar" : "Recolher sidebar"}
+          >
+            {isCollapsed
+              ? <ChevronRight className="h-4 w-4" />
+              : <>
+                  <ChevronLeft className="h-4 w-4" />
+                  <span className="text-xs">Recolher</span>
+                </>
+            }
+          </Button>
+        </div>
+      </SidebarContent>
+    </>
+  );
+}
+
+/** Lê o cookie sidebar:state para preservar o estado de collapse entre navegações/reloads */
+function getSidebarInitialOpen(): boolean {
+  try {
+    const match = document.cookie
+      .split(';')
+      .map(c => c.trim())
+      .find(c => c.startsWith('sidebar:state='));
+    if (match) return match.split('=')[1].trim() === 'true';
+  } catch { /* noop */ }
+  return true; // padrão: expandido
+}
+
 export default function Layout({ children }: LayoutProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const { t } = useLanguage();
-  const { isAdmin, user, loading: authLoading } = useAuth();
-  
-  // Debug: log do estado de autenticação e admin
-  useEffect(() => {
-    console.log('[Layout] Auth state:', { 
-      userId: user?.id?.substring(0, 8), 
-      email: user?.email,
-      isAdmin, 
-      authLoading 
-    });
-  }, [user, isAdmin, authLoading]);
+  const { isAdmin } = useAuth();
   
   // Usando o contexto real de notificações
   const { notifications, unreadCount } = useNotifications();
@@ -237,210 +398,30 @@ export default function Layout({ children }: LayoutProps) {
     };
   }, []);
   
-  const isActive = (path: string) => {
-    return location.pathname === path;
-  };
-
   // Verificar se estamos em ambiente de desenvolvimento
   const isDevelopment = import.meta.env.DEV;
 
   return (
-    <SidebarProvider>
+      /* --sidebar-width-icon sobrescrito para sidebar recolhida mais larga */
+      <SidebarProvider
+        defaultOpen={getSidebarInitialOpen()}
+        style={{ "--sidebar-width-icon": "4.5rem" } as React.CSSProperties}
+      >
       <div className="min-h-screen flex w-full bg-background">
-        <Sidebar className="border-r border-white/5 overflow-visible" collapsible="icon">
-          <SidebarHeader className="flex items-center justify-between p-4">
-            <div className="flex items-center gap-2">
-              <Logo />
-            </div>
-            <ProfileMenu />
-          </SidebarHeader>
-          <SidebarContent className="p-4 flex flex-col h-[calc(100vh-65px)] overflow-visible">
-            {/* Seção principal de navegação */}
-            <nav className="space-y-0.5">
-              <Button 
-                variant="ghost" 
-                className={cn(
-                  "w-full justify-start gap-3 py-3 text-sm font-medium transition-all",
-                  "hover:bg-white/5 text-white/80 hover:text-white",
-                  isActive('/') 
-                    ? "bg-white/5 text-white border-l-2 border-white/60 pl-3" 
-                    : "pl-4"
-                )} 
-                onClick={() => {
-                  // Não limpar caches automaticamente ao trocar de aba - isso causa problemas de duplicação
-                  navigate('/');
-                }}
-              >
-                <LayoutDashboard className="h-4 w-4 opacity-70" />
-                {t('nav.dashboard')}
-              </Button>
-               
-              <Button 
-                variant="ghost" 
-                className={cn(
-                  "w-full justify-start gap-3 py-3 text-sm font-medium transition-all",
-                  "hover:bg-white/5 text-white/80 hover:text-white",
-                  isActive('/signals') 
-                    ? "bg-white/5 text-white border-l-2 border-white/60 pl-3" 
-                    : "pl-4"
-                )} 
-                onClick={() => {
-                  // Não limpar caches automaticamente ao trocar de aba - isso causa problemas de duplicação
-                  navigate('/signals');
-                }}
-              >
-                <Signal className="h-4 w-4 opacity-70" />
-                {t('nav.signals') || 'Trades'}
-              </Button>
-               
-              <Button 
-                variant="ghost" 
-                className={cn(
-                  "w-full justify-start gap-3 py-3 text-sm font-medium transition-all",
-                  "hover:bg-white/5 text-white/80 hover:text-white",
-                  isActive('/news') 
-                    ? "bg-white/5 text-white border-l-2 border-white/60 pl-3" 
-                    : "pl-4"
-                )} 
-                onClick={() => navigate('/news')}
-              >
-                <Newspaper className="h-4 w-4 opacity-70" />
-                {t('nav.news') || 'Notícias'}
-              </Button>
-              
-              <Button 
-                variant="ghost" 
-                className={cn(
-                  "w-full justify-start gap-3 py-3 text-sm font-medium transition-all",
-                  "hover:bg-white/5 text-white/80 hover:text-white",
-                  isActive('/instructions') 
-                    ? "bg-white/5 text-white border-l-2 border-white/60 pl-3" 
-                    : "pl-4"
-                )} 
-                onClick={() => navigate('/instructions')}
-              >
-                <HelpCircle className="h-4 w-4 opacity-70" />
-                {t('nav.instructions')}
-              </Button>
-              
-              <Button 
-                variant="ghost" 
-                className={cn(
-                  "w-full justify-start gap-3 py-3 text-sm font-medium transition-all",
-                  "hover:bg-white/5 text-white/80 hover:text-white",
-                  isActive('/live') 
-                    ? "bg-white/5 text-white border-l-2 border-white/60 pl-3" 
-                    : "pl-4"
-                )} 
-                onClick={() => navigate('/live')}
-              >
-                <Video className="h-4 w-4 opacity-70" />
-                {t('nav.live') || 'Ao Vivo'}
-                {/* Indicador de transmissão ativa */}
-                {liveStreamsCount > 0 && (
-                  <span className="ml-auto relative flex h-2 w-2">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
-                  </span>
-                )}
-              </Button>
-            </nav>
-            
-            {/* Divisor que separa as seções */}
-            <div className="my-4 flex items-center gap-2 px-2">
-              <div className="h-px flex-1 bg-white/5"></div>
-              <span className="text-[10px] uppercase text-white/30 font-medium">{t('nav.settings.notifications') || 'Área do Usuário'}</span>
-              <div className="h-px flex-1 bg-white/5"></div>
-            </div>
-            
-            {/* Seção de configurações e notificações */}
-            <nav className="space-y-0.5">
-              <Button 
-                variant="ghost" 
-                className={cn(
-                  "w-full justify-start gap-3 py-3 text-sm font-medium transition-all notification-button-group relative",
-                  "hover:bg-white/5 text-white/80 hover:text-white",
-                  isActive('/notifications') && !location.search.includes('filter=read')
-                    ? "bg-white/5 text-white border-l-2 border-white/60 pl-3" 
-                    : "pl-4"
-                )} 
-                onClick={() => navigate('/notifications')}
-              >
-                <div className="relative">
-                  <Bell className="h-4 w-4 opacity-70 notification-button-group-hover:opacity-0 transition-opacity" />
-                  <motion.div 
-                    className="absolute inset-0 opacity-0 notification-button-group-hover:opacity-100 transition-opacity"
-                    animate={isActive('/notifications') || false ? { rotate: [0, -10, 10, -5, 5, 0] } : { rotate: 0 }}
-                    transition={{ 
-                      duration: 0.5, 
-                      repeat: (isActive('/notifications') && unreadCount > 0) ? Infinity : 0, 
-                      repeatDelay: 4 
-                    }}
-                  >
-                    <Bell className="h-4 w-4 text-white" />
-                  </motion.div>
-                  {unreadCount > 0 && (
-                    <span className="absolute -top-1 -right-1 h-2 w-2 bg-red-500 rounded-full animate-pulse" />
-                  )}
-                </div>
-                <span>{t('nav.notifications') || 'Notificações'}</span>
-                {unreadCount > 0 && (
-                  <NotificationBadge count={unreadCount} />
-                )}
-              </Button>
-              
-              <Button 
-                variant="ghost" 
-                className={cn(
-                  "w-full justify-start gap-3 py-3 text-sm font-medium transition-all",
-                  "hover:bg-white/5 text-white/80 hover:text-white",
-                  isActive('/settings') 
-                    ? "bg-white/5 text-white border-l-2 border-white/60 pl-3" 
-                    : "pl-4"
-                )} 
-                onClick={() => navigate('/settings')}
-              >
-                <Settings className="h-4 w-4 opacity-70" />
-                {t('nav.settings')}
-              </Button>
-              
-              <Button 
-                variant="ghost" 
-                className={cn(
-                  "w-full justify-start gap-3 py-3 text-sm font-medium transition-all",
-                  "hover:bg-white/5 text-white/80 hover:text-white",
-                  isActive('/support') 
-                    ? "bg-white/5 text-white border-l-2 border-white/60 pl-3" 
-                    : "pl-4"
-                )} 
-                onClick={() => navigate('/support')}
-              >
-                <MessageSquare className="h-4 w-4 opacity-70" />
-                {t('nav.support') || "Suporte"}
-              </Button>
-              
-              {/* Aba Admin - última opção, visível apenas para administradores */}
-              {isAdmin && (
-                <Button 
-                  variant="ghost" 
-                  className={cn(
-                    "w-full justify-start gap-3 py-3 text-sm font-medium transition-all",
-                    "hover:bg-white/5 text-white/80 hover:text-white",
-                    isActive('/admin') 
-                      ? "bg-white/5 text-white border-l-2 border-white/60 pl-3" 
-                      : "pl-4"
-                  )} 
-                  onClick={() => navigate('/admin')}
-                >
-                  <Shield className="h-4 w-4 opacity-70" />
-                  Admin
-                </Button>
-              )}
-            </nav>
-          </SidebarContent>
+        <Sidebar className="border-r border-white/5 overflow-visible z-30" collapsible="icon">
+          <NavSidebarContent
+            navigate={navigate}
+            location={location}
+            t={t}
+            isAdmin={isAdmin}
+            liveStreamsCount={liveStreamsCount}
+            unreadCount={unreadCount}
+            userName={userName}
+            avatarUrl={avatarUrl}
+          />
         </Sidebar>
         
-        <main className="flex-1 p-3 sm:p-4 md:p-6 overflow-y-auto relative min-w-0">
+        <main className="flex-1 p-3 sm:p-4 md:p-6 overflow-y-auto relative min-w-0 z-0">
           <div className="md:hidden flex items-center mb-4 gap-2">
             <SidebarTrigger className="h-9 w-9 shrink-0 border-white/10 bg-black/20" />
             <span className="ml-1 text-sm font-medium truncate">{location.pathname === '/' ? 'Dashboard' : location.pathname.substring(1).charAt(0).toUpperCase() + location.pathname.substring(2)}</span>

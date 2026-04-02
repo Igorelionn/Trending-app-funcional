@@ -39,34 +39,3 @@ export function toastSafeString(value: unknown): string {
   return String(value);
 }
 
-/**
- * Wrapper seguro para a função toast que garante que todos os valores são strings
- * @param obj - Objeto a ser parseado
- * @returns Objeto com valores seguros
- */
-export function safeParse(obj: unknown): unknown {
-  if (obj === null || obj === undefined) {
-    return obj;
-  }
-  
-  // Se for um objeto simples, garantir que todas as propriedades são seguras
-  if (typeof obj === 'object' && !React.isValidElement(obj)) {
-    // Tratar arrays
-    if (Array.isArray(obj)) {
-      return obj.map(item => safeParse(item));
-    }
-    
-    // Tratar objetos
-    const result: Record<string, unknown> = {};
-    const objRecord = obj as Record<string, unknown>;
-    for (const key in objRecord) {
-      if (Object.prototype.hasOwnProperty.call(objRecord, key)) {
-        result[key] = safeParse(objRecord[key]);
-      }
-    }
-    return result;
-  }
-  
-  // Se não for um objeto, retornar uma string
-  return toastSafeString(obj);
-}

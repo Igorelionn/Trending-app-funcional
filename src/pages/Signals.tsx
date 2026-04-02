@@ -4680,17 +4680,16 @@ const handleVisibilityChangeConservative = useCallback((
                       initial={{ opacity: 0, y: 20 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ duration: 0.3, delay: index * 0.05 }}
-                      className="flex flex-col rounded-xl signal-card"
+                      className="flex flex-col rounded-xl signal-card h-full"
                       data-signal-number={index + 1}
                     >
                     <div className="relative p-3 sm:p-4 border-b signal-divider backdrop-blur-md bg-black/70">
-                      {/* Simbolo e nome do ativo - CORRIGIDO */}
                       <div className="flex items-start justify-between gap-2 sm:gap-3">
                         <div className="flex-1 min-w-0">
                           <h3 className="text-base sm:text-lg font-semibold text-white leading-tight overflow-hidden text-ellipsis line-clamp-2 break-words">
                             {String(signal.display_name || signal.symbol)}
                           </h3>
-                          <div className="flex items-center text-xs sm:text-sm text-white/70 mt-1">
+                          <div className="flex items-center text-xs sm:text-sm text-white/70 mt-1 min-w-0">
                             <span className="truncate">{signal.exchange || 'Corretora'}</span>
                           </div>
                         </div>
@@ -4706,22 +4705,18 @@ const handleVisibilityChangeConservative = useCallback((
                       </div>
                     </div>
                     
-                    <div className="p-3 sm:p-4 flex-grow relative backdrop-blur-md bg-black/70">
-                      {/* Indicadores de status */}
+                    <div className="p-3 sm:p-4 flex-grow relative backdrop-blur-md bg-black/70 min-h-0">
                       <div className="flex flex-wrap gap-1.5 sm:gap-2 mb-3 sm:mb-4 min-h-[28px] items-center">
-                        {/* Taxa de sucesso */}
-                        <span className="text-[10px] sm:text-xs h-5 sm:h-6 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-full bg-emerald-900/30 text-emerald-300/80 border border-white/5 flex items-center whitespace-nowrap">
-                                <CheckCheck className="w-2.5 h-2.5 sm:w-3 sm:h-3 mr-0.5 sm:mr-1" />
+                        <span className="text-[10px] sm:text-xs h-5 sm:h-6 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-full bg-emerald-900/30 text-emerald-300/80 border border-white/5 flex items-center whitespace-nowrap flex-shrink-0">
+                                <CheckCheck className="w-2.5 h-2.5 sm:w-3 sm:h-3 mr-0.5 sm:mr-1 flex-shrink-0" />
                                 {formatSuccessRate(signal.success_rate || 0.77)}
                                 </span>
-                        {/* N??vel de expectativa */}
-                        <span className={`text-[10px] sm:text-xs h-5 sm:h-6 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-full flex items-center text-teal-300/70 bg-teal-900/30 border border-white/5 whitespace-nowrap`}>
-                          <CheckCheck className="w-2.5 h-2.5 sm:w-3 sm:h-3 mr-0.5 sm:mr-1" />
+                        <span className={`text-[10px] sm:text-xs h-5 sm:h-6 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-full flex items-center text-teal-300/70 bg-teal-900/30 border border-white/5 whitespace-nowrap flex-shrink-0`}>
+                          <CheckCheck className="w-2.5 h-2.5 sm:w-3 sm:h-3 mr-0.5 sm:mr-1 flex-shrink-0" />
                           {getStrengthText(signal.strength)}
                             </span>
                       </div>
                       
-                      {/* Dados do sinal */}
                       <div className="grid grid-cols-1 gap-2 sm:gap-3 mb-3 sm:mb-4">
                         <div className="flex flex-col space-y-2 sm:space-y-3">
                           <div className="flex items-center justify-between bg-black/80 backdrop-blur-md rounded-lg p-2 sm:p-3 border border-white/5 shadow-inner min-h-[44px] sm:min-h-[50px] signal-info-box gap-2">

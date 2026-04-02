@@ -168,6 +168,15 @@ export function VideoPlayer({
   // Só usa poster se for fornecido e não for o vídeo do dashboard
   const poster = posterKey && videoKey !== "video.main" ? t(posterKey) : undefined;
 
+  // Verificar se há uma fonte válida de vídeo
+  const hasValidSource = src && src !== videoKey && src !== '' && !src.startsWith('video.');
+  
+  // Se não houver fonte válida, não renderizar o componente
+  if (!hasValidSource) {
+    console.warn(`⚠️ [VIDEO-PLAYER] Nenhuma fonte válida encontrada para ${videoKey}`);
+    return null;
+  }
+
   // Verificar se é o vídeo do dashboard para usar layout diferente
   const isDashboardVideo = videoKey === "video.main";
 
@@ -997,6 +1006,14 @@ export function VideoPlayer({
     const video = videoRef.current;
     if (!video) return;
 
+    // Verificar se o vídeo tem uma fonte válida
+    if (!video.src || video.src === '' || video.src === window.location.href) {
+      console.warn('⚠️ [PLAY] Vídeo sem fonte válida. Ignorando play.');
+      setIsPlaying(false);
+      setIsLoading(false);
+      return;
+    }
+
     console.log(`🎬 [TOGGLE] Estado atual: ${video.paused ? 'PAUSADO' : 'TOCANDO'}`);
     
     // LÓGICA ULTRA-SIMPLIFICADA: Se pausado -> tocar, Se tocando -> pausar
@@ -1719,6 +1736,15 @@ export function VideoPlayer({
 
   // Clique no vídeo - ULTRA-SIMPLIFICADO
   const handleVideoClick = () => {
+    const video = videoRef.current;
+    if (!video) return;
+    
+    // Verificar se o vídeo tem uma fonte válida
+    if (!video.src || video.src === '' || video.src === window.location.href) {
+      console.warn('⚠️ [CLICK] Vídeo sem fonte válida. Ignorando clique.');
+      return;
+    }
+    
     console.log('🖱️ [CLICK] Clique no vídeo detectado');
     togglePlay();
   };

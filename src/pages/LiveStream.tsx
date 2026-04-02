@@ -49,8 +49,7 @@ const LiveStreamPage = () => {
   const [newStreamTags, setNewStreamTags] = useState('');
   const [newStreamLanguage, setNewStreamLanguage] = useState('pt');
 
-  // DEBUG: Mostrar informações de debug para o usuário igorelion8@gmail.com
-  const isDebugUser = user?.email === 'igorelion8@gmail.com';
+  const isDebugUser = isAdmin;
   
   // Carregar transmissões ao iniciar o componente
   useEffect(() => {
@@ -125,7 +124,7 @@ const LiveStreamPage = () => {
         const startNow = window.confirm('Deseja iniciar a transmissão agora?');
         if (startNow) {
           // Redirecionar para o dashboard do streamer
-          navigate(`/streamer/${newStream.id}`);
+          navigate(`/profile/${newStream.id}`);
         }
       } else {
         toast.error('Erro ao criar transmissão');

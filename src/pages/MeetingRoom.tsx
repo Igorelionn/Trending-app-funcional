@@ -335,7 +335,6 @@ const MeetingRoom = () => {
         
         // Verificar se o usuário é anfitrião
         const isUserHost = 
-            (user?.email?.toLowerCase() === 'ie702959@gmail.com' && typedStreamData.userId === user?.id) ||
             (userRole === 'streamer' && typedStreamData.userId === user?.id) ||
           (userRole === 'admin') || 
           isAdmin;
@@ -855,10 +854,8 @@ const MeetingRoom = () => {
     try {
       console.log('Iniciando reunião. StreamID:', streamId);
       
-      // Verificar se tem permissão (administrador ou permissão específica)
-      const isAdminUser = user?.id === 'f9f4c3bb-8a6a-494e-aae2-8eeca8a3d85b';
-      
-      if (!canStartLive && !isAdminUser) {
+      // Verificar se tem permissão (via LiveStreamPermissionProvider)
+      if (!canStartLive) {
         console.error('Tentativa de iniciar reunião sem permissão');
         return;
       }

@@ -32,7 +32,6 @@
     "react-tiny-popover": "^8.0.0"
   },
   "dependencies": {
-    "@daily-co/daily-js": "^0.80.0",
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.0",
     "@heroicons/react": "^2.2.0",
@@ -87,6 +86,7 @@
     "framer-motion": "^12.4.10",
     "global": "^4.4.0",
     "google-translate-api-x": "^10.7.2",
+    "hls.js": "^1.6.15",
     "howler": "^2.2.4",
     "i18next": "^24.2.2",
     "i18next-browser-languagedetector": "^8.0.4",

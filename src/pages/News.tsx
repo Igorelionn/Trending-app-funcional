@@ -187,8 +187,6 @@ const getRelativeTime = (datetime: number | string): string => {
 };
 
 const News = () => {
-  const [newsWithImages, setNewsWithImages] = useState<MarketNews[]>([]);
-  const [isLoadingImages, setIsLoadingImages] = useState(false);
   
   // ✅ CORREÇÃO: Carregar timestamp do localStorage ou usar atual
   const getLastUpdateTimestamp = (): number => {
@@ -288,7 +286,7 @@ const News = () => {
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
 
   // Definir categorias de filtro agrupadas com traduções
-  const NEWS_CATEGORIES = getNewsCategories(t);
+  const NEWS_CATEGORIES = useMemo(() => getNewsCategories(t), [t]);
   
   // Função para verificar se uma notícia pertence a uma categoria
   const newsMatchesCategory = useCallback((newsItem: MarketNews, categoryId: string): boolean => {
@@ -358,6 +356,138 @@ const News = () => {
     return matches && !containsExcludeKeyword;
   }, [NEWS_CATEGORIES]);
   
+  // Buscar notícias com React Query
+  const { data: news, isLoading, error, isFetching } = useQuery({
+    queryKey: ['allMarketNews', language],
+    queryFn: async () => {
+      try {
+        const result = await fetchMarketNews({ language, limit: 100 });
+        
+        const sortedResult = result.sort((a, b) => {
+          const aIsCNBC = a.source?.toUpperCase().includes('CNBC') ? 1 : 0;
+          const bIsCNBC = b.source?.toUpperCase().includes('CNBC') ? 1 : 0;
+          if (aIsCNBC !== bIsCNBC) return bIsCNBC - aIsCNBC;
+          const dateA = new Date(a.publishedAt || a.datetime || 0).getTime();
+          const dateB = new Date(b.publishedAt || b.datetime || 0).getTime();
+          return dateB - dateA;
+        });
+        
+        const targetLang = language === 'pt' ? 'pt' : 
+                          language === 'es' ? 'es' : 
+                          language === 'en' ? 'en' : 'pt';
+        
+        const updateTimestamp = Date.now();
+        lastSuccessfulUpdate.current = updateTimestamp;
+        localStorage.setItem('news_last_update_timestamp', updateTimestamp.toString());
+        
+        if (targetLang === 'en') return sortedResult;
+        
+        const translatedNews = await Promise.all(
+          sortedResult.map(async (item) => {
+            try {
+              const translatedTitle = await translateTextLocal(item.headline || item.title || '', targetLang);
+              const translatedSummary = await translateTextLocal(item.summary || item.content || '', targetLang);
+              return {
+                ...item,
+                title: translatedTitle || item.title,
+                headline: translatedTitle || item.headline,
+                summary: translatedSummary || item.summary,
+                content: translatedSummary || item.content,
+              };
+            } catch (err) {
+              console.warn('Erro ao traduzir notícia:', err);
+              return item;
+            }
+          })
+        );
+        
+        return translatedNews;
+      } catch (e) {
+        console.error('[News Page] Erro ao buscar notícias:', e);
+        return [];
+      }
+    },
+    enabled: true,
+    staleTime: 30 * 60 * 1000,
+    refetchInterval: 60 * 60 * 1000,
+    refetchIntervalInBackground: true,
+    retry: 2,
+    retryDelay: 3000,
+    refetchOnWindowFocus: true,
+    refetchOnMount: 'always',
+  });
+
+  // useMemo em vez de useEffect+setState para evitar loop infinito de re-renders
+  const newsWithImages = useMemo(() => {
+    if (!news || !Array.isArray(news) || news.length === 0) return [];
+
+    const categories = getNewsCategories(t);
+
+    const classify = (newsItem: MarketNews): string => {
+      const title = (newsItem.title || '').toLowerCase();
+      const summary = (newsItem.summary || '').toLowerCase();
+      const content = (newsItem.content || '').toLowerCase();
+      const source = (newsItem.source || '').toLowerCase();
+      const relatedSymbols = (newsItem.relatedSymbols || []).join(' ').toLowerCase();
+      const searchText = `${title} ${summary} ${content} ${source} ${relatedSymbols}`;
+
+      if (newsItem.category) {
+        if (newsItem.category === 'crypto') return 'tech';
+        if (newsItem.category === 'forex') return 'global';
+        if (newsItem.category === 'merger') return 'markets';
+        if (newsItem.category === 'general') {
+          for (const cat of categories.slice(1)) {
+            if (cat.keywords.some(kw => {
+              const k = kw.toLowerCase().trim();
+              return searchText.includes(k) || (k.length <= 4 && new RegExp(`\\b${k}\\b`, 'i').test(searchText));
+            })) return cat.id;
+          }
+        }
+      }
+
+      for (const cat of categories.slice(1)) {
+        if (cat.keywords.some(kw => {
+          const k = kw.toLowerCase().trim();
+          return searchText.includes(k) || (k.length <= 4 && new RegExp(`\\b${k}\\b`, 'i').test(searchText));
+        })) return cat.id;
+      }
+
+      return 'global';
+    };
+
+    const processedNews = news.map((item: Record<string, unknown>) => {
+      const publishedAt = item.published_at || item.publishedAt;
+      const processedDatetime = Number(item.datetime) || (publishedAt ? new Date(String(publishedAt)).getTime() : Date.now());
+
+      const newsItem: MarketNews = {
+        id: item.id ? String(item.id) : String(Date.now()),
+        title: item.title ? String(item.title) : '',
+        headline: item.headline ? String(item.headline) : (item.title ? String(item.title) : ''),
+        published_at: publishedAt ? String(publishedAt) : new Date(processedDatetime).toISOString(),
+        content: item.content ? String(item.content) : (item.summary ? String(item.summary) : ''),
+        summary: item.summary ? String(item.summary) : '',
+        source: item.source ? String(item.source) : '',
+        url: item.url ? String(item.url) : '',
+        imageUrl: item.imageUrl ? String(item.imageUrl) : (item.image ? String(item.image) : ''),
+        sentiment: 0,
+        symbols: Array.isArray(item.symbols) ? (item.symbols as string[]) : [],
+        datetime: processedDatetime,
+        relatedSymbols: Array.isArray(item.relatedSymbols) ? (item.relatedSymbols as string[]) : [],
+        category: item.category ? String(item.category) : ''
+      };
+
+      if (!newsItem.category || newsItem.category === 'business') {
+        newsItem.category = classify(newsItem);
+      }
+
+      return newsItem;
+    });
+
+    return processedNews
+      .filter(item => item.imageUrl && item.imageUrl.trim() !== '')
+      .sort((a, b) => new Date(b.published_at).getTime() - new Date(a.published_at).getTime());
+  }, [news, t]);
+
   // Filtrar notícias baseado na categoria selecionada
   const filteredNews = useMemo(() => {
     if (!newsWithImages || newsWithImages.length === 0) return [];
@@ -367,86 +497,6 @@ const News = () => {
     
     return filtered;
   }, [newsWithImages, selectedCategory, newsMatchesCategory]);
-  
-  // Buscar notícias com React Query - Configuração idêntica à Dashboard
-  const { data: news, isLoading, error, isFetching } = useQuery({
-    queryKey: ['allMarketNews', language],
-    queryFn: async () => {
-      try {
-        const result = await fetchMarketNews({ language, limit: 100 });
-        
-        // ✅ PRIORIZAR CNBC: Ordenar notícias com CNBC primeiro
-        const sortedResult = result.sort((a, b) => {
-          const aIsCNBC = a.source?.toUpperCase().includes('CNBC') ? 1 : 0;
-          const bIsCNBC = b.source?.toUpperCase().includes('CNBC') ? 1 : 0;
-          
-          if (aIsCNBC !== bIsCNBC) {
-            return bIsCNBC - aIsCNBC;
-          }
-          
-          const dateA = new Date(a.publishedAt || a.datetime || 0).getTime();
-          const dateB = new Date(b.publishedAt || b.datetime || 0).getTime();
-          return dateB - dateA;
-        });
-        
-        // ✅ TRADUZIR DE ACORDO COM IDIOMA SELECIONADO ANTES DE RETORNAR
-        const targetLang = language === 'pt' ? 'pt' : 
-                          language === 'es' ? 'es' : 
-                          language === 'en' ? 'en' : 'pt';
-        
-        // ✅ ATUALIZAR TIMESTAMP DE ÚLTIMA ATUALIZAÇÃO
-        const updateTimestamp = Date.now();
-        lastSuccessfulUpdate.current = updateTimestamp;
-        localStorage.setItem('news_last_update_timestamp', updateTimestamp.toString());
-        
-        // Se idioma for inglês, não traduzir (já está em inglês)
-        if (targetLang === 'en') {
-          return sortedResult;
-        }
-        
-        // ✅ TRADUZIR IMEDIATAMENTE (bloquear até terminar)
-        const translatedNews = await Promise.all(
-          sortedResult.map(async (item) => {
-            try {
-              const translatedTitle = await translateTextLocal(item.headline || item.title || '', targetLang);
-              const translatedSummary = await translateTextLocal(item.summary || item.content || '', targetLang);
-              
-              return {
-                ...item,
-                title: translatedTitle || item.title,
-                headline: translatedTitle || item.headline,
-                summary: translatedSummary || item.summary,
-                content: translatedSummary || item.content,
-              };
-            } catch (err) {
-              console.warn('⚠️ Erro ao traduzir notícia:', err);
-              return item;
-            }
-          })
-        );
-        
-        return translatedNews;
-      } catch (e) {
-        console.error('❌ [News Page] Erro ao buscar notícias:', e);
-        return [];
-      }
-    },
-    // ✅ SEMPRE buscar notícias ao carregar
-    enabled: true,
-    // Reduzir cache para 30 minutos para garantir tradução atualizada
-    staleTime: 30 * 60 * 1000,
-    // ✅ Atualizar automaticamente a cada hora
-    refetchInterval: 60 * 60 * 1000,
-    // Continuar refetch mesmo quando a aba estiver em background
-    refetchIntervalInBackground: true,
-    // Em caso de erro, tentar novamente 2 vezes
-    retry: 2,
-    retryDelay: 3000,
-    // ✅ IMPORTANTE: Refetch ao focar na janela para garantir tradução correta
-    refetchOnWindowFocus: true,
-    // ✅ SEMPRE buscar ao abrir a página para garantir idioma correto
-    refetchOnMount: 'always',
-  });
   
   // ✅ LISTENER: Forçar atualização quando voltar do background
   useEffect(() => {
@@ -487,125 +537,6 @@ const News = () => {
       document.head.removeChild(styleElement);
     };
   }, []);
-
-  // Função para classificar automaticamente uma notícia
-  const classifyNews = useCallback((newsItem: MarketNews): string => {
-    const title = (newsItem.title || '').toLowerCase();
-    const summary = (newsItem.summary || '').toLowerCase();
-    const content = (newsItem.content || '').toLowerCase();
-    const source = (newsItem.source || '').toLowerCase();
-    const relatedSymbols = (newsItem.relatedSymbols || []).join(' ').toLowerCase();
-    const searchText = `${title} ${summary} ${content} ${source} ${relatedSymbols}`;
-    
-    // Verificar categoria baseada na API Finnhub
-    if (newsItem.category) {
-      if (newsItem.category === 'crypto') return 'tech';
-      if (newsItem.category === 'forex') return 'global';
-      if (newsItem.category === 'merger') return 'markets';
-      if (newsItem.category === 'general') {
-        // Para categoria geral, verificar keywords
-        for (const category of NEWS_CATEGORIES.slice(1)) {
-          const matches = category.keywords.some(keyword => {
-            const keywordLower = keyword.toLowerCase().trim();
-            const exactMatch = searchText.includes(keywordLower);
-            const wordMatch = keywordLower.length <= 4 ? 
-              new RegExp(`\\b${keywordLower}\\b`, 'i').test(searchText) : false;
-            return exactMatch || wordMatch;
-          });
-          
-          if (matches) {
-            return category.id;
-          }
-        }
-      }
-    }
-    
-    // Verificar cada categoria (exceto 'all') e retornar a primeira que fizer match
-    for (const category of NEWS_CATEGORIES.slice(1)) { // slice(1) para pular 'all'
-      const matches = category.keywords.some(keyword => {
-        const keywordLower = keyword.toLowerCase().trim();
-        const exactMatch = searchText.includes(keywordLower);
-        const wordMatch = keywordLower.length <= 4 ? 
-          new RegExp(`\\b${keywordLower}\\b`, 'i').test(searchText) : false;
-        return exactMatch || wordMatch;
-      });
-      
-      if (matches) {
-        return category.id;
-      }
-    }
-    
-    // Se não encontrou categoria específica, classificar como 'global'
-    return 'global';
-  }, [NEWS_CATEGORIES]);
-
-  // Efeito para processar as notícias recebidas da API Finnhub
-  useEffect(() => {
-    if (news && Array.isArray(news) && news.length > 0) {
-      // As notícias já vêm processadas e TRADUZIDAS da query
-      const processedNews = news.map((item: Record<string, unknown>) => {
-        // Garantir que o timestamp está em formato correto
-        const publishedAt = item.published_at || item.publishedAt;
-        const processedDatetime = Number(item.datetime) || (publishedAt ? new Date(String(publishedAt)).getTime() : Date.now());
-        
-        // ✅ IMPORTANTE: Manter os dados traduzidos (summary, content, title, headline)
-        // NÃO sobrescrever com dados originais
-        const newsItem: MarketNews = {
-          id: item.id ? String(item.id) : String(Date.now()),
-          // ✅ Manter título traduzido (item.title já está traduzido)
-          title: item.title ? String(item.title) : '',
-          // ✅ Manter headline traduzido (se existir)
-          headline: item.headline ? String(item.headline) : (item.title ? String(item.title) : ''),
-          published_at: publishedAt ? String(publishedAt) : new Date(processedDatetime).toISOString(),
-          // ✅ Manter content traduzido (item.content já está traduzido)
-          content: item.content ? String(item.content) : (item.summary ? String(item.summary) : ''),
-          // ✅ Manter summary traduzido (item.summary já está traduzido)
-          summary: item.summary ? String(item.summary) : '',
-          source: item.source ? String(item.source) : '',
-          url: item.url ? String(item.url) : '',
-          imageUrl: item.imageUrl ? String(item.imageUrl) : (item.image ? String(item.image) : ''),
-          sentiment: 0,
-          symbols: Array.isArray(item.symbols) ? (item.symbols as string[]) : [],
-          datetime: processedDatetime,
-          relatedSymbols: Array.isArray(item.relatedSymbols) ? (item.relatedSymbols as string[]) : [],
-          category: item.category ? String(item.category) : '' // Pode já vir classificado pela API
-        };
-        
-        // Classificar automaticamente se não tiver categoria
-        if (!newsItem.category || newsItem.category === 'business') {
-          newsItem.category = classifyNews(newsItem);
-        }
-        
-        return newsItem;
-      });
-      
-      // Filtrar apenas notícias com imagens
-      const newsWithImagesOnly = processedNews.filter(item => 
-        item.imageUrl && item.imageUrl.trim() !== ''
-      );
-      
-      // Ordenar por data (mais recentes primeiro)
-      newsWithImagesOnly.sort((a, b) => {
-        const dateA = new Date(a.published_at).getTime();
-        const dateB = new Date(b.published_at).getTime();
-        return dateB - dateA;
-      });
-      
-      // Log da classificação para debug
-      if (import.meta.env.DEV) {
-        const categoryCount = newsWithImagesOnly.reduce((acc, item) => {
-          acc[item.category || 'undefined'] = (acc[item.category || 'undefined'] || 0) + 1;
-          return acc;
-        }, {} as Record<string, number>);
-        // AUTO CLASSIFICATION (silenciado)
-      }
-      
-      setNewsWithImages(newsWithImagesOnly);
-      setIsLoadingImages(false);
-    }
-  }, [news, classifyNews]);
-
-  // Garantir que as notícias tenham formato adequado (removido - usando filteredNews)
 
   useEffect(() => {
     if (error) {
@@ -816,7 +747,7 @@ const News = () => {
                         alt={item.headline || item.title || "Notícia"}
                           className="w-full h-full object-cover"
                           loading="lazy"
-                          fetchPriority="high"
+                          fetchpriority="high"
                           decoding="async"
                         onError={(e) => {
                             // Se a imagem falhar, esconder o elemento

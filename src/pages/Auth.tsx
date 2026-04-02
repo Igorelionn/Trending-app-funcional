@@ -2218,19 +2218,6 @@ export default function Auth() {
       >
         {/* Cartão principal com efeito de vidro */}
         <div className="p-8 bg-black/40 backdrop-blur-xl rounded-2xl border-[0.5px] border-white/[0.05] shadow-[0_8px_30px_rgb(0,0,0,0.12)]">
-          {/* Seletor de idioma minimalista no canto superior direito */}
-          <motion.div 
-            className="absolute top-4 right-4 z-10"
-            initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ delay: 0.5, duration: 0.3 }}
-          >
-            <LanguageSelector 
-              variant="auth"
-              showFlag={true}
-            />
-          </motion.div>
-
           <motion.div
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
@@ -2273,12 +2260,26 @@ export default function Auth() {
             ) : emailVerified ? (
               <EmailVerifiedContent />
             ) : (
-              <Tabs 
-                defaultValue="login" 
-                className="w-full" 
-                id="auth-tabs"
-                value={activeTab}
-                onValueChange={(value) => setActiveTab(value)}>
+              <>
+                {/* Seletor de idioma - círculo com bandeira no canto superior direito */}
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.8 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: 0.3, duration: 0.5 }}
+                  className="absolute top-4 right-4 z-20"
+                >
+                  <LanguageSelector 
+                    variant="compact"
+                    showFlag={true}
+                  />
+                </motion.div>
+                
+                <Tabs 
+                  defaultValue="login" 
+                  className="w-full" 
+                  id="auth-tabs"
+                  value={activeTab}
+                  onValueChange={(value) => setActiveTab(value)}>
                 <TabsList className="grid w-full grid-cols-2 mb-8 bg-black/20 p-1 rounded-xl border-[0.5px] border-white/[0.03]">
                   <TabsTrigger 
                     value="login" 
@@ -2844,6 +2845,7 @@ export default function Auth() {
                   </AnimatePresence>
                 </TabsContent>
               </Tabs>
+              </>
             )}
           </AnimatePresence>
         </div>

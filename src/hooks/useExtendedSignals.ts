@@ -19,12 +19,27 @@ declare global {
 export function useExtendedSignals() {
   const { loading: authLoading } = useAuth();  // ✅ Pega status de loading do auth
   
-  const STORAGE_KEY = 'extended_signals_cache';
-  const CACHE_DATE_KEY = 'extended_signals_cache_date';
+  // 🔥 BUSCAR CÓDIGO DE APOIADOR PARA CACHE
+  const getSupporterCode = () => {
+    try {
+      const prefs = localStorage.getItem('trader_preferences');
+      if (prefs) {
+        const parsed = JSON.parse(prefs);
+        return parsed.supporter_code || 'DEFAULT';
+      }
+    } catch {
+      // Ignorar erro
+    }
+    return 'DEFAULT';
+  };
+  
+  const supporterCode = getSupporterCode();
+  const STORAGE_KEY = `extended_signals_cache_${supporterCode}`;
+  const CACHE_DATE_KEY = `extended_signals_cache_date_${supporterCode}`;
   
   // 🔥 VERSÃO 3.0: LIMPEZA INTELIGENTE
   const CACHE_VERSION_KEY = 'extended_signals_cache_version';
-  const CURRENT_VERSION = '3.0'; // Incrementar sempre que mudar estrutura de dados
+  const CURRENT_VERSION = '3.1'; // Incrementar sempre que mudar estrutura de dados
   
   const [signals, setSignals] = useState<ActiveSignal[]>(() => {
     try {
@@ -64,13 +79,13 @@ export function useExtendedSignals() {
       if (cacheDate === today && cached) {
         const parsed = JSON.parse(cached);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          return false;
+          return false; // Tem cache válido, não está loading
         }
       }
     } catch {
       // Erro ao verificar cache, considera vazio
     }
-    return true;
+    return true; // Sem cache válido, está loading
   });
   const [error, setError] = useState<Error | null>(null);
   
@@ -96,6 +111,21 @@ export function useExtendedSignals() {
       setError(null);
 
       const supabase = getSupabase();
+      
+      // 🔥 BUSCAR CÓDIGO DE APOIADOR DO LOCALSTORAGE
+      let supporterCode: string | null = null;
+      try {
+        const prefs = localStorage.getItem('trader_preferences');
+        if (prefs) {
+          const parsed = JSON.parse(prefs);
+          supporterCode = parsed.supporter_code || null;
+        }
+      } catch {
+        // Ignorar erro ao buscar preferências
+      }
+      
+      // 🔥 DEBUG: Log do código usado
+      console.log('🔍 [Extended Signals] Código de apoiador:', supporterCode || 'DEFAULT');
 
       // ⚡ RETRY com TIMEOUT REDUZIDO de 8s por tentativa (evitar travamento)
       let result;
@@ -105,7 +135,9 @@ export function useExtendedSignals() {
       for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const attemptPromise = (supabase as any).rpc('get_extended_signals');
+          const attemptPromise = (supabase as any).rpc('get_extended_signals_with_code', {
+            p_supporter_code: supporterCode
+          });
           const attemptTimeout = new Promise((_, reject) => 
             setTimeout(() => reject(new Error(`RPC timeout tentativa ${attempt}`)), 8000)
           );
@@ -263,8 +295,10 @@ export function useExtendedSignals() {
       }
     }
     
-    // Sempre buscar dados frescos do servidor
-    fetchExtendedSignals();
+    // 🔥 Pequeno delay antes de buscar para dar tempo do layout renderizar
+    const fetchDelay = setTimeout(() => {
+      fetchExtendedSignals();
+    }, 100); // 100ms de delay
     
     let refreshTimeout: NodeJS.Timeout | null = null;
     
@@ -282,6 +316,7 @@ export function useExtendedSignals() {
     window.addEventListener('force-refresh-signals', handleForceRefresh);
     
     return () => {
+      if (fetchDelay) clearTimeout(fetchDelay); // 🔥 Limpar delay
       if (refreshTimeout) clearTimeout(refreshTimeout);
       window.removeEventListener('force-update-after-background', handleBackgroundResume);
       window.removeEventListener('force-refresh-signals', handleForceRefresh);

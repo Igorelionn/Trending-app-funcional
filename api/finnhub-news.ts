@@ -10,7 +10,7 @@
 
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
-const FINNHUB_API_KEY = 'd09dep1r01qnv9ci80tgd09dep1r01qnv9ci80u0';
+const FINNHUB_API_KEY = process.env.FINNHUB_API_KEY || '';
 
 // Interface para os dados retornados pela API Finnhub
 interface FinnhubNewsItem {

@@ -1,4 +1,4 @@
-import React, { StrictMode } from "react";
+import React from "react";
 import { createRoot } from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -19,25 +19,6 @@ if (import.meta.env.DEV) {
   };
 }
 
-// 🔇 Suprimir avisos e logs de bibliotecas externas
-const originalWarn = console.warn;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-console.warn = (...args: any[]) => {
-  const message = args[0]?.toString() || '';
-  if (
-    message.includes('React Router Future Flag Warning') ||
-    message.includes('Download the React DevTools') ||
-    message.includes('startTransition') ||
-    message.includes('v7_') ||
-    message.includes('DialogTitle') ||
-    message.includes('Missing `Description`') ||
-    message.includes('aria-describedby')
-  ) {
-    return;
-  }
-  originalWarn.apply(console, args);
-};
-
 const originalError = console.error;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 console.error = (...args: any[]) => {
@@ -49,21 +30,16 @@ console.error = (...args: any[]) => {
     message.includes('The above error occurred in the') ||
     message.includes('Consider adding an error boundary') ||
     message.includes('failed to connect to websocket') ||
-    message.includes('WebSocket (failing)')
+    message.includes('WebSocket (failing)') ||
+    message.includes('NotSupportedError') ||
+    message.includes('no supported sources') ||
+    message.includes('Invalid hook call') ||
+    message.includes('mismatching versions of React') ||
+    message.includes('Cannot read properties of null')
   ) {
     return;
   }
   originalError.apply(console, args);
-};
-
-const originalLog = console.log;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-console.log = (...args: any[]) => {
-  const message = args[0]?.toString() || '';
-  if (message.includes('Download the React DevTools')) {
-    return;
-  }
-  originalLog.apply(console, args);
 };
 
 // Limpar apenas caches órfãos e obsoletos (não interferir em caches ativos)
@@ -243,11 +219,6 @@ setTimeout(cleanOldCacheData, 5000);
 // Obter instância única do Supabase para evitar múltiplas inicializações
 const supabaseInstance = getSupabase();
 
-// Adicionar a instância do Supabase ao objeto window para facilitar depuração
-// e permitir acesso em outros módulos
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-(window as any).supabase = supabaseInstance;
-
 // Configurações do toast - Estilo Dark na parte inferior
 const toastOptions = {
   position: 'bottom-right' as const,
@@ -359,24 +330,22 @@ document.addEventListener('visibilitychange', () => {
 
 // Renderização do aplicativo
 createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <BrowserRouter>
-      <LanguageProvider>
-        <TimeZoneProvider>
-          <AuthProvider>
-            <UserProvider>
-              <NotificationProvider>
-                <QueryClientProvider client={queryClient}>
-                  <Toaster {...toastOptions} />
-                  <App />
-                </QueryClientProvider>
-              </NotificationProvider>
-            </UserProvider>
-          </AuthProvider>
-        </TimeZoneProvider>
-      </LanguageProvider>
-    </BrowserRouter>
-  </StrictMode>
+  <BrowserRouter>
+    <LanguageProvider>
+      <TimeZoneProvider>
+        <AuthProvider>
+          <UserProvider>
+            <NotificationProvider>
+              <QueryClientProvider client={queryClient}>
+                <Toaster {...toastOptions} />
+                <App />
+              </QueryClientProvider>
+            </NotificationProvider>
+          </UserProvider>
+        </AuthProvider>
+      </TimeZoneProvider>
+    </LanguageProvider>
+  </BrowserRouter>
 );
 
 // ✅ Importar serviço de notificações de sinais

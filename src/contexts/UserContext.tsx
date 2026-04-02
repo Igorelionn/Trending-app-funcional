@@ -569,9 +569,8 @@ const SecureUserProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             setUserName(userSettings.displayName);
           }
           
-          if (userSettings.avatarUrl) {
-            setAvatarUrl(userSettings.avatarUrl);
-          }
+          // Sempre atualiza o avatar (null limpa o estado do usuário anterior)
+          setAvatarUrl(userSettings.avatarUrl || null);
         } catch (error) {
           if (import.meta.env.DEV) {
             console.warn('⚠️ Erro ao recarregar dados após login:', error);
@@ -580,10 +579,17 @@ const SecureUserProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }, 300);
     };
     
+    const handleAuthSignedOut = () => {
+      setAvatarUrl(null);
+      setUserName('');
+    };
+
     window.addEventListener('auth-login-success', handleAuthLoginSuccess);
+    window.addEventListener('auth-signed-out', handleAuthSignedOut);
     
     return () => {
       window.removeEventListener('auth-login-success', handleAuthLoginSuccess);
+      window.removeEventListener('auth-signed-out', handleAuthSignedOut);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Executar apenas uma vez na inicialização. fetchUserData e checkSession não devem estar aqui para evitar loops

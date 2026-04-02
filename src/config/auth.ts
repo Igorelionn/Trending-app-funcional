@@ -16,7 +16,7 @@ export const authConfig = {
     // URLs de redirecionamento
     redirectUrls: {
       development: 'http://127.0.0.1:8090/auth/callback',
-      production: 'https://seu-dominio.com/auth/callback'
+      production: `${typeof window !== 'undefined' ? window.location.origin : ''}/auth/callback`
     }
   },
   

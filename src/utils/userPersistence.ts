@@ -25,7 +25,6 @@ export interface UserSettings {
   userId?: string | null;
   phone?: string | null;
   fullName?: string | null;
-  password?: string | null; // Apenas para armazenamento temporário durante a sincronização
   metadata?: Record<string, any>; // Metadados adicionais do usuário
 }
 
@@ -232,13 +231,14 @@ const getCurrentUserRobust = async (): Promise<{ userId: string | null; userData
       const hashParams = new URLSearchParams(window.location.hash.substring(1));
       const accessToken = hashParams.get('access_token');
       
-      if (accessToken) {
+          if (accessToken) {
         try {
-          // Tentar usar o token para obter dados do usuário
-          const response = await fetch(`https://arkrjextwpwqhrvcijyr.supabase.co/auth/v1/user`, {
+          const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://arkrjextwpwqhrvcijyr.supabase.co';
+          const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+          const response = await fetch(`${supabaseUrl}/auth/v1/user`, {
             headers: {
               'Authorization': `Bearer ${accessToken}`,
-              'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFya3JqZXh0d3B3cWhydmNpanlyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg5MDM4OTUsImV4cCI6MjA4NDQ3OTg5NX0.qAmrahULxsyZsmwwSR1FbEclNMwLe-vnUeAvpxDTdkY'
+              'apikey': supabaseAnonKey
             }
           });
           
@@ -335,22 +335,7 @@ export const syncUserSettings = async (): Promise<boolean> => {
       await saveAvatar(settings.avatarUrl, userId);
     }
     
-    // 3. SINCRONIZAR SENHA (apenas se houver alteração temporária)
-    if (settings.password) {
-      try {
-        await (supabase as SupabaseClient<Database>).auth.updateUser({ password: settings.password });
-        console.log("Senha do usuário atualizada com sucesso");
-        
-        // Limpar a senha das configurações após sincronização
-        const updatedSettings = { ...settings };
-        delete updatedSettings.password;
-        saveUserSettings(updatedSettings);
-      } catch (passwordError) {
-        console.error("Erro ao atualizar senha do usuário:", passwordError);
-      }
-    }
-    
-    // 4. ATUALIZAR TABELA USER_PROFILES (principal fonte de persistência)
+    // 3. ATUALIZAR TABELA USER_PROFILES (principal fonte de persistência)
     try {
       const { data: existingProfile } = await supabase
         .from('user_profiles')
@@ -876,18 +861,16 @@ export const updateUserAvatar = async (avatarUrl: string): Promise<boolean> => {
 };
 
 /**
- * Atualiza a senha do usuário
- * Esta função deve ser usada quando o usuário altera sua senha
+ * Atualiza a senha do usuário diretamente via Supabase Auth
  */
 export const updateUserPassword = async (newPassword: string): Promise<boolean> => {
   try {
-    // Armazenar temporariamente para sincronização
-    saveUserSettings({ password: newPassword });
-    
-    // Sincronizar com o servidor
-    const synced = await syncUserSettings();
-    
-    return synced;
+    const { error } = await (supabase as SupabaseClient<Database>).auth.updateUser({ password: newPassword });
+    if (error) {
+      console.error("Erro ao atualizar senha:", error);
+      return false;
+    }
+    return true;
   } catch (error) {
     console.error("Erro ao atualizar senha do usuário:", error);
     return false;

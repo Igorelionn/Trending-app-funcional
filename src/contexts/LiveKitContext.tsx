@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useRef, useEffect, ReactNode } from 'react';
-import { Room, RoomEvent, RemoteParticipant, LocalParticipant, Track } from 'livekit-client';
+import { Room, RoomEvent, RemoteParticipant, LocalParticipant, Track, LocalTrack } from 'livekit-client';
 import { useAuth } from './AuthContext';
-import { fetchLiveKitToken, TokenResponse } from '@/api/livekit-token';
+import { fetchLiveKitToken } from '@/api/livekit-token';
 import { LIVEKIT_CONFIG } from '@/services/livekitService';
 
 export interface LiveKitRoom {
@@ -57,6 +57,10 @@ export interface LiveKitContextType {
   startScreenShare: () => Promise<void>;
   stopScreenShare: () => Promise<void>;
   sendMessage: (message: string) => void;
+  /** Publica um MediaStream existente na sala (câmera/screen do streamer) */
+  publishStream: (stream: MediaStream) => Promise<void>;
+  /** Substitui as tracks publicadas por um novo MediaStream */
+  replaceStream: (stream: MediaStream) => Promise<void>;
   
   // Status
   viewerCount: number;
@@ -65,6 +69,7 @@ export interface LiveKitContextType {
 
 const LiveKitContext = createContext<LiveKitContextType | undefined>(undefined);
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useLiveKit() {
   const context = useContext(LiveKitContext);
   if (!context) {
@@ -258,16 +263,8 @@ export function LiveKitProvider({ children }: LiveKitProviderProps) {
         }
       }, 1000);
 
-      // Se for streamer, ativar câmera e microfone automaticamente
-      if (userType === 'streamer') {
-        try {
-          await newRoom.localParticipant.enableCameraAndMicrophone();
-          setIsVideoEnabled(true);
-          setIsAudioEnabled(true);
-        } catch (error) {
-          console.warn('⚠️ Não foi possível ativar câmera/microfone automaticamente:', error);
-        }
-      }
+      // Viewers não precisam de câmera/microfone
+      // Streamers publicam via publishStream() após joinRoom()
 
       return true;
 
@@ -361,6 +358,49 @@ export function LiveKitProvider({ children }: LiveKitProviderProps) {
     }
   }, [room]);
 
+  // Publicar um MediaStream existente na sala (para streamers com câmera própria)
+  const publishStream = useCallback(async (stream: MediaStream): Promise<void> => {
+    if (!room?.localParticipant) {
+      console.warn('⚠️ publishStream: sala não conectada');
+      return;
+    }
+    try {
+      for (const track of stream.getVideoTracks()) {
+        await room.localParticipant.publishTrack(track, { source: Track.Source.Camera, name: 'camera' });
+      }
+      for (const track of stream.getAudioTracks()) {
+        await room.localParticipant.publishTrack(track, { source: Track.Source.Microphone, name: 'microphone' });
+      }
+      setIsVideoEnabled(stream.getVideoTracks().length > 0);
+      setIsAudioEnabled(stream.getAudioTracks().length > 0);
+      console.log('✅ publishStream: tracks publicadas', stream.getTracks().map(t => t.kind));
+    } catch (error) {
+      console.error('❌ publishStream error:', error);
+    }
+  }, [room]);
+
+  // Substituir tracks publicadas (câmera → screen share ou vice-versa)
+  const replaceStream = useCallback(async (stream: MediaStream): Promise<void> => {
+    if (!room?.localParticipant) {
+      console.warn('⚠️ replaceStream: sala não conectada');
+      return;
+    }
+    try {
+      // Remover tracks de vídeo publicadas
+      const publishedTracks = Array.from(room.localParticipant.trackPublications.values());
+      for (const pub of publishedTracks) {
+        if (pub.track && (pub.source === Track.Source.Camera || pub.source === Track.Source.ScreenShare)) {
+          await room.localParticipant.unpublishTrack(pub.track as LocalTrack);
+        }
+      }
+      // Publicar novo stream
+      await publishStream(stream);
+      console.log('✅ replaceStream: tracks substituídas');
+    } catch (error) {
+      console.error('❌ replaceStream error:', error);
+    }
+  }, [room, publishStream]);
+
   // Enviar mensagem
   const sendMessage = useCallback((message: string) => {
     if (room?.localParticipant && message.trim()) {
@@ -422,6 +462,8 @@ export function LiveKitProvider({ children }: LiveKitProviderProps) {
     startScreenShare,
     stopScreenShare,
     sendMessage,
+    publishStream,
+    replaceStream,
     
     // Status
     viewerCount,

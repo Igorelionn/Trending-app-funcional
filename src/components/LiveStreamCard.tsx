@@ -41,7 +41,7 @@ export const LiveStreamCard: React.FC<LiveStreamCardProps> = ({
   showCategory = true,
   onDelete
 }) => {
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth();
   const { deleteStream } = useLiveStream();
   const [isHovered, setIsHovered] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
@@ -50,10 +50,6 @@ export const LiveStreamCard: React.FC<LiveStreamCardProps> = ({
   const [streamerAvatar, setStreamerAvatar] = useState(stream.streamerAvatar);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-  
-  // Lista de IDs de administradores
-  const ADMIN_USER_IDS = ['f9f4c3bb-8a6a-494e-aae2-8eeca8a3d85b'];
-  const isAdmin = user && ADMIN_USER_IDS.includes(user.id);
   
   // Atualizar avatar do streamer em tempo real
   useEffect(() => {
@@ -233,8 +229,7 @@ export const LiveStreamCard: React.FC<LiveStreamCardProps> = ({
       } else {
         toast.error('Erro ao excluir transmissão');
       }
-    } catch (error) {
-      console.error('Erro ao excluir transmissão:', error);
+    } catch {
       toast.error('Erro ao excluir transmissão');
     } finally {
       setIsDeleting(false);
@@ -248,7 +243,6 @@ export const LiveStreamCard: React.FC<LiveStreamCardProps> = ({
   };
 
   if (isCompact) {
-    // Versão compacta do card (para listas)
     return (
       <motion.div
         whileHover={{ scale: 1.01, x: 3 }}
@@ -262,7 +256,7 @@ export const LiveStreamCard: React.FC<LiveStreamCardProps> = ({
           delay: Math.random() * 0.2
         }}
         className={`
-          cursor-pointer rounded-lg overflow-hidden shadow-md flex 
+          cursor-pointer rounded-lg overflow-hidden shadow-md flex h-full
           ${isActive ? 'ring-2 ring-blue-500/50' : ''}
           transform-gpu
         `}
@@ -273,9 +267,7 @@ export const LiveStreamCard: React.FC<LiveStreamCardProps> = ({
         }}
         onClick={() => onClick(stream)}
       >
-        {/* Thumbnail */}
-        <div className="relative min-w-24 w-24 h-20 md:min-w-32 md:w-32 md:h-24 lg:min-w-36 lg:w-36 lg:h-28">
-          {/* Gradiente sobre a thumbnail */}
+        <div className="relative w-32 aspect-video overflow-hidden bg-gray-950 flex-shrink-0">
           <div className="absolute inset-0 bg-gradient-to-tr from-gray-900 via-transparent to-gray-900 z-10"></div>
           
           {stream.thumbnail ? (
@@ -293,7 +285,6 @@ export const LiveStreamCard: React.FC<LiveStreamCardProps> = ({
             </div>
           )}
           
-          {/* Status badge */}
           <div className="absolute top-1 left-1 z-20">
             {stream.status === 'live' && (
               <Badge className="bg-red-500 hover:bg-red-600 text-[10px] font-medium px-1.5 flex items-center gap-1">
@@ -384,7 +375,6 @@ export const LiveStreamCard: React.FC<LiveStreamCardProps> = ({
     );
   }
 
-  // Card normal (não compacto)
   return (
     <motion.div
       whileHover={{ scale: 1.02, y: -5 }}
@@ -398,7 +388,7 @@ export const LiveStreamCard: React.FC<LiveStreamCardProps> = ({
         delay: Math.random() * 0.2
       }}
       className={`
-        cursor-pointer rounded-xl overflow-hidden shadow-xl
+        cursor-pointer rounded-xl overflow-hidden shadow-xl h-full flex flex-col
         ${isActive ? 'ring-2 ring-blue-500/50' : ''}
         transform-gpu
       `}
@@ -411,8 +401,7 @@ export const LiveStreamCard: React.FC<LiveStreamCardProps> = ({
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
-      <div className="relative h-40 overflow-hidden">
-        {/* Thumbnail com overlay */}
+      <div className="relative aspect-video overflow-hidden bg-gray-950 flex-shrink-0">
         <div className="absolute inset-0 bg-gradient-to-tr from-gray-900 via-transparent to-gray-900 z-10"></div>
         
         {stream.thumbnail ? (
@@ -464,49 +453,51 @@ export const LiveStreamCard: React.FC<LiveStreamCardProps> = ({
             {stream.title}
           </h3>
           
-          <div className="flex items-center gap-1 mt-1">
-            <Avatar className="h-8 w-8 border border-white/20">
-              <AvatarImage src={streamerAvatar} />
+          <div className="flex items-center gap-1 mt-1 min-w-0">
+            <Avatar className="h-8 w-8 border border-white/20 overflow-hidden flex-shrink-0">
+              <AvatarImage 
+                src={streamerAvatar}
+                className="object-cover w-full h-full"
+              />
               <AvatarFallback className="bg-black text-white">
                 {stream.streamerName.substring(0, 2).toUpperCase()}
               </AvatarFallback>
             </Avatar>
-            <span className="text-sm text-gray-300 font-medium">
+            <span className="text-sm text-gray-300 font-medium truncate">
               {stream.streamerName}
             </span>
             
             {stream.isPremium && (
-              <Badge className="bg-amber-500/80 text-amber-950 text-xs ml-auto">PREMIUM</Badge>
+              <Badge className="bg-amber-500/80 text-amber-950 text-xs ml-auto flex-shrink-0">PREMIUM</Badge>
             )}
           </div>
         </div>
       </div>
       
-      {/* Área de detalhes/estatísticas da transmissão */}
-      <div className="p-3 bg-gray-900 border-t border-gray-800/60">
+      <div className="p-3 bg-gray-900 border-t border-gray-800/60 flex-grow flex flex-col justify-between min-h-0">
         <div className="flex items-center justify-between text-sm">
-          <div className="flex items-center gap-3">
-            <div className="flex items-center text-gray-400">
+          <div className="flex items-center gap-3 min-w-0 flex-1">
+            <div className="flex items-center text-gray-400 flex-shrink-0">
               <Users className="h-4 w-4 mr-1 text-blue-400" />
               <span>{stream.viewerCount || 0}</span>
             </div>
             
             {stream.status === 'live' && (
-              <div className="flex items-center text-gray-400">
+              <div className="flex items-center text-gray-400 flex-shrink-0">
                 <Clock className="h-4 w-4 mr-1 text-red-400" />
                 <span>{getMeetingTime(stream)}</span>
               </div>
             )}
             
             {stream.category && showCategory && (
-              <div className="flex items-center text-gray-400">
-                <span className="mr-1">{getCategoryIcon(stream.category)}</span>
-                <span className="capitalize">{stream.category}</span>
+              <div className="flex items-center text-gray-400 min-w-0">
+                <span className="mr-1 flex-shrink-0">{getCategoryIcon(stream.category)}</span>
+                <span className="capitalize truncate">{stream.category}</span>
               </div>
             )}
           </div>
           
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-shrink-0">
             {isAdmin && (
               <motion.button
                 whileHover={{ scale: 1.1 }}
@@ -539,16 +530,15 @@ export const LiveStreamCard: React.FC<LiveStreamCardProps> = ({
           </div>
         </div>
         
-        {/* Tags */}
         {stream.tags && stream.tags.length > 0 && (
           <div className="flex flex-wrap gap-1 mt-2">
             {stream.tags.slice(0, 3).map(tag => (
-              <Badge key={tag} variant="outline" className="text-xs px-2 py-0 bg-gray-800/50 border-gray-700 text-gray-300">
+              <Badge key={tag} variant="outline" className="text-xs px-2 py-0 bg-gray-800/50 border-gray-700 text-gray-300 truncate max-w-[100px]">
                 #{tag}
               </Badge>
             ))}
             {stream.tags.length > 3 && (
-              <Badge variant="outline" className="text-xs px-2 py-0 bg-gray-800/50 border-gray-700 text-gray-300">
+              <Badge variant="outline" className="text-xs px-2 py-0 bg-gray-800/50 border-gray-700 text-gray-300 flex-shrink-0">
                 +{stream.tags.length - 3}
               </Badge>
             )}

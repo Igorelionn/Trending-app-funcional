@@ -44,10 +44,10 @@ import StreamViewer from '@/pages/StreamViewer';
 import StreamDebug from '@/pages/StreamDebug';
 import { AvatarPersistence } from '@/components/AvatarPersistence';
 import { loadUserSettings, checkPendingSyncOnLoad } from '@/utils/userPersistence';
+import Ranking from '@/pages/Ranking';
+import Social from '@/pages/Social';
 
 import { useUserPreferences } from '@/hooks/useUserPreferences';
-import FreeStreaming from '@/pages/FreeStreaming';
-import { FreeWebRTCProvider } from '@/contexts/FreeWebRTCContext';
 import LiveKitStreaming from '@/pages/LiveKitStreaming';
 import { LiveKitProvider } from '@/contexts/LiveKitContext';
 
@@ -378,6 +378,8 @@ const AppRouter = () => {
       <Route path="/instructions" element={<AuthGuard checkOnly={true}><Instructions /></AuthGuard>} />
       <Route path="/support" element={<AuthGuard checkOnly={true}><Support /></AuthGuard>} />
       <Route path="/admin" element={<AuthGuard checkOnly={true}><Admin /></AuthGuard>} />
+      <Route path="/ranking" element={<AuthGuard checkOnly={true}><Ranking /></AuthGuard>} />
+      <Route path="/social" element={<AuthGuard checkOnly={true}><Social /></AuthGuard>} />
       
       {/* Novas rotas para o sistema de mídia */}
       <Route path="/media" element={<AuthGuard checkOnly={true}><MediaHub /></AuthGuard>} />
@@ -388,12 +390,12 @@ const AppRouter = () => {
       
       {/* Rotas existentes de streaming */}
       <Route path="/live" element={<AuthGuard checkOnly={true}><Live /></AuthGuard>} />
-      <Route path="/streamer/:streamerId" element={<AuthGuard checkOnly={true}><StreamerProfile /></AuthGuard>} />
+      <Route path="/profile/:streamerId" element={<AuthGuard checkOnly={true}><StreamerProfile /></AuthGuard>} />
       <Route path="/live/:streamId" element={<AuthGuard checkOnly={true}><MeetingRoom /></AuthGuard>} />
       <Route path="/streamer/:streamId" element={<AuthGuard checkOnly={true}><StreamerDashboard /></AuthGuard>} />
       <Route path="/watch/:streamId" element={<AuthGuard checkOnly={true}><StreamViewer /></AuthGuard>} />
       <Route path="/stream-debug" element={<AuthGuard checkOnly={true}><StreamDebug /></AuthGuard>} />
-      <Route path="/streaming" element={<AuthGuard checkOnly={true}><FreeStreaming /></AuthGuard>} />
+      <Route path="/streaming" element={<Navigate to="/live" replace />} />
       <Route path="/livekit-streaming" element={<AuthGuard checkOnly={true}><LiveKitStreaming /></AuthGuard>} />
       <Route path="/livekit-streaming/:roomId" element={<AuthGuard checkOnly={true}><LiveKitStreaming /></AuthGuard>} />
       
@@ -412,15 +414,10 @@ const AppRouter = () => {
 
 
 const App = () => {
-  const [didPreload, setDidPreload] = useState(false);
   const queryClient = useQueryClient();
   
   useEffect(() => {
-    const preloadId = Math.random().toString(36).substring(2, 9);
-    
     const preloadData = async () => {
-      // Iniciando pré-carregamento (silenciado)
-      
       try {
         await Promise.allSettled([
           queryClient.prefetchQuery({
@@ -428,37 +425,12 @@ const App = () => {
             queryFn: () => Promise.resolve([]),
             staleTime: 0,
           }),
-          
-          (async () => {
-            const criticalImages = [
-              '/profeyes-logo-removebg-preview.png', 
-              '/favicon.ico'
-            ];
-            
-            await Promise.allSettled(
-              criticalImages.map(src => preloadImage(src))
-            );
-            // Imagens pré-carregadas (silenciado)
-          })(),
-          
-          (async () => {
-            try {
-              const response = await fetch('/TUTORIAL PORTUGUES - TRENDING -FIX.mp4', { 
-                method: 'HEAD',
-                cache: 'force-cache'
-              });
-              // Vídeo disponível (silenciado)
-            } catch (e) {
-              // Erro ao verificar vídeo (silenciado)
-            }
-          })(),
+          Promise.allSettled(
+            ['/profeyes-logo-removebg-preview.png', '/favicon.ico'].map(src => preloadImage(src))
+          ),
         ]);
-        
-        setDidPreload(true);
-        // Pré-carregamento concluído (silenciado)
       } catch (error) {
-        console.error(`Erro no pré-carregamento [${preloadId}]:`, error);
-        setDidPreload(true);
+        console.error('Erro no pré-carregamento:', error);
       }
     };
     
@@ -568,19 +540,17 @@ const App = () => {
     <TrendingNotificationProvider>
       <VideoProvider>
         <LiveStreamProvider>
-          <FreeWebRTCProvider>
-            <LiveKitProvider>
-              <LiveStreamPermissionProvider>
-                <AvatarPersistence />
-                <UserProfilePersistence />
-                <div className="min-h-screen" style={{ backgroundColor: 'transparent' }}>
-                  <HotToaster position="bottom-center" />
-                  <AppRouter />
-                  <Toaster />
-                </div>
-              </LiveStreamPermissionProvider>
-            </LiveKitProvider>
-          </FreeWebRTCProvider>
+          <LiveKitProvider>
+            <LiveStreamPermissionProvider>
+              <AvatarPersistence />
+              <UserProfilePersistence />
+              <div className="min-h-screen" style={{ backgroundColor: 'transparent' }}>
+                <HotToaster position="bottom-center" />
+                <AppRouter />
+                <Toaster />
+              </div>
+            </LiveStreamPermissionProvider>
+          </LiveKitProvider>
         </LiveStreamProvider>
       </VideoProvider>
     </TrendingNotificationProvider>

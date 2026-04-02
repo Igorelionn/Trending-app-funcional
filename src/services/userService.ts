@@ -886,7 +886,8 @@ export const userService = {
 
   /**
    * Verifica se um email existe e está confirmado no Supabase Auth
-   * e na tabela de perfis de usuário
+   * e na tabela de perfis de usuário.
+   * Usa apenas tentativa de login com senha inválida (sem enviar emails ao usuário).
    */
   async checkEmailExists(email: string): Promise<{
     inAuth: boolean;
@@ -895,150 +896,68 @@ export const userService = {
   }> {
     try {
       await this.init();
-      console.log(`Verificando se o email existe: ${email}`);
       
-      // Inicializar cliente Supabase se necessário
       if (!supabase) {
         console.error('Cliente Supabase não inicializado');
         return { inAuth: false, inProfiles: false, isConfirmed: false };
       }
       
-      // Validar formato de email
       if (!email || typeof email !== 'string' || !email.includes('@')) {
         console.error('Formato de email inválido');
         return { inAuth: false, inProfiles: false, isConfirmed: false };
       }
       
-      // Normalizar o email para evitar problemas de case
       const normalizedEmail = email.trim().toLowerCase();
       
-      // Inicializar resultado com valores padrão
       const result = {
         inAuth: false,
         inProfiles: false,
         isConfirmed: false
       };
 
-      // Método 1: Verificar via API de resetar senha
+      // Verificar via tentativa de login com senha inválida (não envia emails)
       try {
-        console.log(`Verificando email ${normalizedEmail} via API de reset de senha...`);
-        
-        const { error } = await (supabase as SupabaseClient<Database>).auth.resetPasswordForEmail(normalizedEmail);
-        
-        if (!error) {
-          // Se não ocorrer erro, o email existe e está confirmado
-          result.inAuth = true;
-          result.isConfirmed = true;
-          console.log(`Email ${normalizedEmail} confirmado (sem erro no resetPasswordForEmail)`);
-        } else {
-          console.log(`Erro no reset de senha: ${error.message}`);
-          
-          if (error.message.includes('User not found') || 
-              error.message.includes('Email não encontrado')) {
-            // Email definitivamente não existe
-            result.inAuth = false;
-            result.isConfirmed = false;
-            console.log(`Email ${normalizedEmail} não existe no Supabase Auth`);
-          }
-          // Continuar verificação com outros métodos
-        }
-      } catch (resetError) {
-        console.error('Erro ao tentar resetar senha:', resetError);
-      }
+        const { error } = await (supabase as SupabaseClient<Database>).auth.signInWithPassword({
+          email: normalizedEmail,
+          password: 'SENHA_INVALIDA_VERIFICACAO_EXISTENCIA_!@#$%'
+        });
 
-      // Método 2: Tentar login com senha inválida se não temos certeza ainda
-      if (!result.inAuth) {
-        try {
-          console.log(`Verificando email ${normalizedEmail} via tentativa de login...`);
-          
-          const { error } = await (supabase as SupabaseClient<Database>).auth.signInWithPassword({
-            email: normalizedEmail,
-            password: 'SENHA_INCORRETA_PROPOSITAL_123!@#'
-          });
-
-          if (error) {
-            if (error.message.includes('Invalid login credentials') || 
-                error.message.includes('credenciais inválidas')) {
-              // Senha incorreta para um email existente e confirmado
-              result.inAuth = true;
-              result.isConfirmed = true;
-              console.log(`Email ${normalizedEmail} existe e está confirmado (erro de credenciais inválidas)`);
-            } 
-            else if (error.message.includes('Email not confirmed') || 
-                    error.message.includes('email não confirmado')) {
-              // Email existe mas não está confirmado
-              result.inAuth = true;
-              result.isConfirmed = false;
-              console.log(`Email ${normalizedEmail} existe mas não está confirmado`);
-            }
-            else if (error.message.includes('User not found') || 
-                    error.message.includes('usuário não encontrado')) {
-              result.inAuth = false;
-              result.isConfirmed = false;
-              console.log(`Email ${normalizedEmail} definitivamente não existe (usuário não encontrado)`);
-            }
-          }
-        } catch (loginError) {
-          console.error('Erro ao tentar login:', loginError);
-        }
-      }
-
-      // Método 3: Tentar um terceiro método (resend verification) se ainda não temos certeza
-      if (!result.inAuth) {
-        try {
-          console.log(`Verificando email ${normalizedEmail} via resend verification...`);
-          
-          const { error } = await (supabase as SupabaseClient<Database>).auth.resend({
-            type: 'signup',
-            email: normalizedEmail,
-          });
-
-          if (error) {
-            if (error.message.includes('User not found') || 
-               error.message.includes('usuário não encontrado')) {
-              result.inAuth = false;
-              result.isConfirmed = false;
-              console.log(`Email ${normalizedEmail} não existe (resend verification falhou)`);
-            }
-          } else {
-            // Se não houver erro, o email existe mas não está confirmado
+        if (error) {
+          if (error.message.includes('Invalid login credentials') || 
+              error.message.includes('credenciais inválidas')) {
+            result.inAuth = true;
+            result.isConfirmed = true;
+          } 
+          else if (error.message.includes('Email not confirmed') || 
+                  error.message.includes('email não confirmado')) {
             result.inAuth = true;
             result.isConfirmed = false;
-            console.log(`Email ${normalizedEmail} existe mas não está confirmado (resend verification funcionou)`);
           }
-        } catch (resendError) {
-          console.error('Erro ao tentar reenviar verificação:', resendError);
+          else if (error.message.includes('User not found') || 
+                  error.message.includes('usuário não encontrado')) {
+            result.inAuth = false;
+            result.isConfirmed = false;
+          }
         }
+      } catch (loginError) {
+        console.error('Erro ao verificar existência de email:', loginError);
       }
 
-      // Método 4: Verificar na tabela de perfis
+      // Verificar também na tabela de perfis
       try {
-        console.log(`Verificando email ${normalizedEmail} na tabela de perfis...`);
-        
-        // Verificar se a tabela existe antes de consultar
-        const tableExists = await this.doesTableExist('user_profiles');
-        
-        if (tableExists) {
-          const { data, error} = await (supabase as SupabaseClient<Database>)
-            .from('user_profiles')
-            .select('*')
-            .eq('email', normalizedEmail)
-            .maybeSingle();
+        const { data } = await (supabase as SupabaseClient<Database>)
+          .from('user_profiles')
+          .select('user_id')
+          .eq('email', normalizedEmail)
+          .maybeSingle();
 
-          if (!error && data) {
-            result.inProfiles = true;
-            console.log(`Email ${normalizedEmail} encontrado na tabela user_profiles`);
-          } else {
-            console.log(`Email ${normalizedEmail} não encontrado na tabela user_profiles`);
-          }
-        } else {
-          console.log('Tabela user_profiles não existe, ignorando verificação de perfil');
+        if (data) {
+          result.inProfiles = true;
         }
       } catch (dbError) {
         console.error('Erro ao verificar email na tabela de perfis:', dbError);
       }
 
-      console.log(`Resultado final para ${normalizedEmail}:`, result);
       return result;
     } catch (error) {
       console.error('Erro geral ao verificar existência de email:', error);
@@ -1169,6 +1088,14 @@ export const userService = {
       }
 
       localStorage.setItem('trader_preferences', JSON.stringify(updated));
+      
+      // 🔥 Disparar evento customizado quando código de apoiador muda
+      if (preferences.supporter_code !== undefined) {
+        window.dispatchEvent(new CustomEvent('supporter-code-changed', {
+          detail: { code: preferences.supporter_code }
+        }));
+      }
+      
       return { success: true, error: null };
     } catch (error) {
       return { success: false, error: error as Error };

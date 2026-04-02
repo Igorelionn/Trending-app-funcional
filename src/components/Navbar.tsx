@@ -18,7 +18,8 @@ import {
   LogOut,
   User,
   UserCircle,
-  MessageSquare
+  MessageSquare,
+  Trophy
 } from "lucide-react";
 
 const Navbar = () => {
@@ -65,6 +66,16 @@ const Navbar = () => {
               )}
             >
               {t('nav.instructions')}
+            </Link>
+            <Link
+              href="/ranking"
+              className={cn(
+                "flex items-center gap-1.5 text-sm font-medium",
+                pathname === "/ranking" ? "text-white/90" : "text-white/60 hover:text-white/90"
+              )}
+            >
+              <Trophy className="h-4 w-4" />
+              Ranking
             </Link>
           </nav>
         </div>

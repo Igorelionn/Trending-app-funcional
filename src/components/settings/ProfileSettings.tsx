@@ -199,16 +199,7 @@ export function ProfileSettings() {
     };
   }, [refreshUserData, user]);
 
-  useEffect(() => {
-    const getPasswordFromStorage = async () => {
-      const storedPassword = localStorage.getItem('demo_password');
-      if (storedPassword) {
-        setActualPassword(storedPassword);
-      }
-    };
-    
-    getPasswordFromStorage();
-  }, []);
+  // Senha nunca é persistida fora do estado React
 
   useEffect(() => {
     const handleAvatarUpdated = (event: Event) => {
@@ -285,11 +276,14 @@ export function ProfileSettings() {
       const resizedFile = blobToFile(resizedBlob, file.name, file.type);
       
       const fileExt = file.name.split('.').pop();
-      const fileName = `${Date.now()}.${fileExt}`;
+      // Usar ID do usuário para garantir que cada usuário tenha seu próprio arquivo
+      const fileName = `${user?.id}/${Date.now()}.${fileExt}`;
       
       const { data, error } = await (getSupabase() as SupabaseClient).storage
         .from('avatars')
-        .upload(`public/${fileName}`, resizedFile);
+        .upload(fileName, resizedFile, {
+          upsert: true // Substituir se já existir
+        });
       
       if (error) throw error;
       
@@ -503,57 +497,12 @@ export function ProfileSettings() {
     }
   }, [showPassword, actualPassword]);
 
-  useEffect(() => {
-    if (showPassword) {
-        console.log("Verificando se a senha está sendo exibida corretamente...");
-        if (actualPassword === "Senha@123") {
-          console.log("PROBLEMA DETECTADO: A senha está sendo definida com valor fixo!");
-          
-          const passwordFromStorage = localStorage.getItem('demo_password') || "Senha@123";
-          console.log("Tentando restaurar do localStorage:", passwordFromStorage);
-          setActualPassword(passwordFromStorage);
-        } else {
-          console.log("Senha atual no estado:", actualPassword);
-        }
-    }
-  }, [showPassword, actualPassword]);
-
-  useEffect(() => {
-    if (showPassword) {
-      console.log("Estado de exibição de senha ativado");
-      
-      // Salvar estado de exibição no localStorage para persistir entre navegações
-      localStorage.setItem('password_visible', 'true');
-      
-      if (!tempPassword && !actualPassword) {
-        console.warn("AVISO: Senha não disponível para exibição!");
-        
-        const storedPassword = localStorage.getItem('demo_password');
-        if (storedPassword) {
-          console.log("Senha recuperada do localStorage");
-          setTempPassword(storedPassword);
-        }
-      } else {
-        console.log("Senha disponível para exibição");
-      }
-    } else {
-      // Remover estado de exibição quando ocultada
-      localStorage.removeItem('password_visible');
-    }
-  }, [showPassword, tempPassword, actualPassword]);
 
   // Restaurar estado de exibição da senha ao carregar o componente
   useEffect(() => {
-    const passwordWasVisible = localStorage.getItem('password_visible') === 'true';
-    if (passwordWasVisible) {
-      const storedPassword = localStorage.getItem('demo_password');
-      if (storedPassword) {
-        console.log("Restaurando estado de exibição da senha");
-        setShowPassword(true);
-        setTempPassword(storedPassword);
-        setActualPassword(storedPassword);
-      }
-    }
+    // Limpar chaves de senha legadas que possam ter ficado de versões anteriores
+    localStorage.removeItem('demo_password');
+    localStorage.removeItem('password_visible');
   }, []);
 
   // ❌ DESABILITADO - Esta função estava interferindo na verificação de senha
@@ -772,12 +721,9 @@ export function ProfileSettings() {
         console.log("❌ Mantendo modal aberto - senha incorreta");
         // Estados após erro (silenciado)
         
-        // ❌ Garantir que não mostra senha em caso de erro
         setShowPassword(false);
         setActualPassword("");
         setTempPassword("");
-        localStorage.removeItem('demo_password');
-        localStorage.removeItem('password_visible');
         
         return;
       }
@@ -821,12 +767,6 @@ export function ProfileSettings() {
         // ✅ Mostrar a senha CORRETA (apenas a senha que foi verificada com sucesso no Supabase)
         setShowPassword(true);
         setActualPassword(senhaDigitada); // Esta é realmente a senha correta verificada
-        
-        // ✅ Salvar no localStorage para persistir (apenas se a verificação passou no Supabase)
-        localStorage.setItem('demo_password', senhaDigitada);
-        localStorage.setItem('password_visible', 'true'); // ✅ Marcar que senha está visível
-        
-        console.log("✅ Senha verificada com sucesso no Supabase e interface atualizada");
       }, 300);
     } catch (error) {
       console.error("❌ Erro geral ao processar verificação:", error);
@@ -868,7 +808,6 @@ export function ProfileSettings() {
         throw error;
       }
       
-      localStorage.setItem('demo_password', newPassword);
       setActualPassword(newPassword);
       
       setPasswordUpdateMode(false);
@@ -1261,7 +1200,7 @@ export function ProfileSettings() {
                 <AvatarImage
                   src={avatarUrl || undefined}
                   alt={userName || "Usuário"}
-                  className="object-cover transition-all duration-200 group-hover:brightness-75"
+                  className="object-cover w-full h-full transition-all duration-200 group-hover:brightness-75"
                   onLoad={() => {
                     setUploading(false);
                   }}
@@ -1415,32 +1354,19 @@ export function ProfileSettings() {
                   type="button"
                   onClick={() => {
                     if (showPassword) {
-                      console.log("Ocultando senha");
                       setShowPassword(false);
                       setTempPassword("");
-                      setActualPassword(""); // ❌ Limpar senha ao ocultar
-                      
-                      // ❌ Limpar localStorage quando ocultar senha
-                      localStorage.removeItem('demo_password');
-                      localStorage.removeItem('password_visible');
+                      setActualPassword("");
                     } else {
-                      console.log("Iniciando processo de verificação");
-                      
-                      // ❌ Limpar TODOS os estados antes de abrir modal
                       setVerificationError("");
                       setVerificationPassword("");
                       setVerificationShowPassword(false);
                       setAuthSuccess(false);
                       setAuthInProgress(false);
                       setIsAuthenticating(false);
-                      setShowPassword(false); // ❌ Garantir que não mostra senha antes da verificação
-                      setActualPassword(""); // ❌ Limpar senha anterior
-                      setTempPassword(""); // ❌ Limpar senha temporária
-                      
-                      // ❌ Limpar localStorage também para garantir
-                      localStorage.removeItem('demo_password');
-                      localStorage.removeItem('password_visible');
-                      
+                      setShowPassword(false);
+                      setActualPassword("");
+                      setTempPassword("");
                       requestAnimationFrame(() => {
                         setIsVerifyPasswordOpen(true);
                       });

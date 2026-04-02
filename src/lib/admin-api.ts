@@ -349,9 +349,34 @@ export const getAdminDashboardMetrics = async (
     const { data: authData } = await admin.auth.admin.listUsers({ page: 1, perPage: 1 });
     const totalUsers = (authData as { total?: number })?.total ?? 0;
 
-    // Para onlineNow, vamos usar 0 já que não temos a coluna last_login_at
-    // Essa métrica precisaria de uma tabela de sessões ativas ou similar
-    const onlineNow = 0;
+    // Calcular usuários online (últimos 15 minutos)
+    const ONLINE_THRESHOLD_MS = 15 * 60 * 1000;
+    const onlineThreshold = new Date(Date.now() - ONLINE_THRESHOLD_MS).toISOString();
+    
+    // Buscar todos os usuários para contar online
+    let onlineCount = 0;
+    let page = 1;
+    const perPage = 100;
+    let hasMore = true;
+    while (hasMore) {
+      const response = await admin.auth.admin.listUsers({ page, perPage });
+      if (response.error) break;
+      const batch = (response.data.users || []) as UserData[];
+      
+      // Contar quantos estão online
+      batch.forEach(u => {
+        if (u.last_sign_in_at && u.last_sign_in_at >= onlineThreshold) {
+          onlineCount++;
+        }
+      });
+      
+      const batchTotal = (response.data as { total?: number }).total ?? 0;
+      hasMore = batch.length + (page - 1) * perPage < batchTotal;
+      page++;
+      if (page > 50) break; // Limite de segurança
+    }
+
+    const onlineNow = onlineCount;
 
     // Atividade diária (user_daily_activity) - dados de TODOS os membros
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -376,18 +401,18 @@ export const getAdminDashboardMetrics = async (
 
     // Novos cadastros por dia - buscar TODOS os usuários do período
     let allUsers: UserData[] = [];
-    let page = 1;
-    const perPage = 100;
-    let hasMore = true;
-    while (hasMore) {
-      const response = await admin.auth.admin.listUsers({ page, perPage });
+    let signupPage = 1;
+    const signupPerPage = 100;
+    let hasMoreSignups = true;
+    while (hasMoreSignups) {
+      const response = await admin.auth.admin.listUsers({ page: signupPage, perPage: signupPerPage });
       if (response.error) break;
       const batch = (response.data.users || []) as UserData[];
       allUsers = allUsers.concat(batch);
       const batchTotal = (response.data as { total?: number }).total ?? 0;
-      hasMore = allUsers.length < batchTotal;
-      page++;
-      if (page > 50) break;
+      hasMoreSignups = allUsers.length < batchTotal;
+      signupPage++;
+      if (signupPage > 50) break;
     }
 
     const signupsMap: Record<string, number> = {};
@@ -422,6 +447,7 @@ export type SupporterCode = {
   is_active: boolean;
   created_at: string;
   updated_at: string;
+  user_id: string | null;
 };
 
 export const listSupporterCodes = async (): Promise<SupporterCode[]> => {
@@ -441,7 +467,7 @@ export const listSupporterCodes = async (): Promise<SupporterCode[]> => {
 };
 
 export const addSupporterCode = async (
-  code: string, link: string, description?: string, specialMessage?: string, displayName?: string, brokerName?: string
+  code: string, link: string, description?: string, specialMessage?: string, displayName?: string, brokerName?: string, userId?: string | null
 ): Promise<{ success: boolean; error: string | null }> => {
   try {
     const admin = adminClient();
@@ -456,6 +482,7 @@ export const addSupporterCode = async (
         display_name: displayName?.trim() || null,
         broker_name: brokerName || 'AVALON',
         is_active: true,
+        user_id: userId || null,
       });
 
     if (error) return { success: false, error: error.message };
@@ -467,7 +494,7 @@ export const addSupporterCode = async (
 
 export const updateSupporterCode = async (
   id: string,
-  updates: { code?: string; link?: string; description?: string; special_message?: string; display_name?: string; broker_name?: string; is_active?: boolean }
+  updates: { code?: string; link?: string; description?: string; special_message?: string; display_name?: string; broker_name?: string; is_active?: boolean; user_id?: string | null }
 ): Promise<{ success: boolean; error: string | null }> => {
   try {
     const admin = adminClient();
@@ -479,6 +506,7 @@ export const updateSupporterCode = async (
     if (updates.display_name !== undefined) payload.display_name = updates.display_name.trim() || null;
     if (updates.broker_name !== undefined) payload.broker_name = updates.broker_name;
     if (updates.is_active !== undefined) payload.is_active = updates.is_active;
+    if (updates.user_id !== undefined) payload.user_id = updates.user_id || null;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { error } = await (admin as any)
@@ -537,5 +565,65 @@ export const validateSupporterCode = async (code: string): Promise<{
     return { valid: true, link: row.link, description: row.description, special_message: row.special_message, display_name: row.display_name };
   } catch {
     return invalid;
+  }
+};
+
+// Registrar uso de código de apoiador
+export const registerSupporterCodeUsage = async (code: string): Promise<{ success: boolean; error: string | null }> => {
+  if (!code || !code.trim()) return { success: false, error: 'Código inválido' };
+
+  try {
+    // Buscar o usuário atual primeiro
+    const { data: { session } } = await supabase.auth.getSession();
+    const userId = session?.user?.id;
+
+    if (!userId) {
+      console.log('❌ Usuário não autenticado, não pode registrar código');
+      return { success: false, error: 'Usuário não autenticado' };
+    }
+
+    // Buscar o código e o trader_id usando client normal
+    const { data: codeData, error: codeError } = await (supabase as SupabaseClient<Database>)
+      .from('supporter_codes')
+      .select('id, user_id')
+      .eq('code', code.toUpperCase().trim())
+      .eq('is_active', true)
+      .maybeSingle();
+
+    if (codeError || !codeData) {
+      console.error('❌ Código não encontrado:', code, codeError);
+      return { success: false, error: 'Código não encontrado' };
+    }
+
+    console.log('✅ Registrando uso do código:', {
+      code,
+      code_id: codeData.id,
+      user_id: userId,
+      trader_id: codeData.user_id
+    });
+
+    // Registrar o uso (com upsert para evitar duplicatas)
+    const { error: insertError } = await (supabase as SupabaseClient<Database>)
+      .from('supporter_code_usage')
+      .upsert({
+        code_id: codeData.id,
+        user_id: userId,
+        trader_id: codeData.user_id,
+        used_at: new Date().toISOString(),
+      }, {
+        onConflict: 'user_id,code_id',
+        ignoreDuplicates: false // Atualizar o used_at se já existir
+      });
+
+    if (insertError) {
+      console.error('❌ Erro ao registrar uso:', insertError);
+      return { success: false, error: insertError.message };
+    }
+
+    console.log('✅ Uso do código registrado com sucesso!');
+    return { success: true, error: null };
+  } catch (err) {
+    console.error('❌ Erro inesperado ao registrar uso:', err);
+    return { success: false, error: err instanceof Error ? err.message : 'Erro ao registrar uso' };
   }
 };

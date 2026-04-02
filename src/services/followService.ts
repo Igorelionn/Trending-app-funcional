@@ -6,9 +6,11 @@ export interface StreamerProfile {
   avatar_url: string | null;
   email: string;
   followers_count: number;
-  supporters_count: number; // Pessoas que usam o código
+  supporters_count: number;
   referral_code?: string;
   is_following?: boolean;
+  bio?: string | null;
+  about?: string | null;
 }
 
 export interface Follower {
@@ -133,7 +135,9 @@ export async function getAllStreamers(currentUserId?: string): Promise<StreamerP
         avatar_url,
         email,
         referral_code,
-        is_admin
+        is_admin,
+        bio,
+        about
       `)
       .eq('is_admin', true)
       .order('display_name', { ascending: true });
@@ -190,6 +194,8 @@ export async function getAllStreamers(currentUserId?: string): Promise<StreamerP
       avatar_url: string | null; 
       email: string;
       referral_code?: string;
+      bio?: string | null;
+      about?: string | null;
     }) => ({
       id: p.user_id,
       display_name: p.display_name || 'Usuário',
@@ -198,7 +204,9 @@ export async function getAllStreamers(currentUserId?: string): Promise<StreamerP
       followers_count: followersMap.get(p.user_id) || 0,
       supporters_count: supportersMap.get(p.user_id) || 0,
       referral_code: p.referral_code,
-      is_following: followingSet.has(p.user_id)
+      is_following: followingSet.has(p.user_id),
+      bio: p.bio,
+      about: p.about,
     }));
   } catch (error) {
     console.error('Erro ao listar streamers:', error);
