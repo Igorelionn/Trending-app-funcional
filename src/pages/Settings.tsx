@@ -197,40 +197,6 @@ const Settings = () => {
         
         {/* Efeito de grid */}
         <div className="absolute inset-0 bg-[url('/grid-pattern.svg')] bg-center opacity-[0.02]"></div>
-        
-        {/* Círculos de destaque com base na aba ativa */}
-        <motion.div 
-          className={cn(
-            "absolute top-20 left-1/4 w-[400px] h-[400px] rounded-full blur-[120px] opacity-10",
-            activeTabColors?.gradientFrom || "from-indigo-600/10"
-          )}
-          animate={{ 
-            opacity: [0.05, 0.15, 0.05],
-            scale: [1, 1.1, 1],
-          }}
-          transition={{ 
-            duration: 8, 
-            repeat: Infinity,
-            repeatType: "reverse" 
-          }}
-        />
-        
-        <motion.div 
-          className={cn(
-            "absolute bottom-10 right-1/4 w-[300px] h-[300px] rounded-full blur-[100px] opacity-10",
-            activeTabColors?.gradientTo || "to-indigo-900/10"
-          )}
-          animate={{ 
-            opacity: [0.05, 0.1, 0.05],
-            scale: [1, 1.05, 1],
-          }}
-          transition={{ 
-            duration: 6, 
-            repeat: Infinity,
-            repeatType: "reverse",
-            delay: 1 
-          }}
-        />
       </div>
 
       {/* Container principal com sombra */}
