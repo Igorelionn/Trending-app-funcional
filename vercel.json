@@ -4,16 +4,5 @@
       "path": "/api/rotate-signals",
       "schedule": "*/5 * * * *"
     }
-  ],
-  "env": {
-    "VITE_SUPABASE_URL": "@supabase-url",
-    "VITE_SUPABASE_SERVICE_ROLE_KEY": "@supabase-service-role-key",
-    "LIVEKIT_API_KEY": "@livekit-api-key",
-    "LIVEKIT_API_SECRET": "@livekit-api-secret",
-    "LIVEKIT_URL": "@livekit-url",
-    "FINNHUB_API_KEY": "@finnhub-api-key",
-    "CRON_SECRET": "@cron-secret",
-    "VITE_MEDIA_SERVER_URL": "@media-server-url",
-    "VITE_MEDIA_SERVER_KEY": "@media-server-key"
-  }
+  ]
 }
