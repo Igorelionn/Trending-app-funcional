@@ -1,4 +1,10 @@
 {
+  "crons": [
+    {
+      "path": "/api/rotate-signals",
+      "schedule": "*/5 * * * *"
+    }
+  ],
   "env": {
     "VITE_SUPABASE_URL": "@supabase-url",
     "VITE_SUPABASE_SERVICE_ROLE_KEY": "@supabase-service-role-key",
