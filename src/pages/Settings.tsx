@@ -90,12 +90,12 @@ const itemVariants = {
 // Configuração de cores para cada aba
 const tabColors = {
   perfil: {
-    accent: "indigo",
-    bgActive: "bg-indigo-600/10",
-    textActive: "text-indigo-100",
-    iconColor: "text-indigo-400",
-    gradientFrom: "from-indigo-500/20",
-    gradientTo: "to-indigo-800/20"
+    accent: "slate",
+    bgActive: "bg-slate-800/10",
+    textActive: "text-slate-100",
+    iconColor: "text-slate-400",
+    gradientFrom: "from-slate-700/20",
+    gradientTo: "to-slate-800/20"
   }
 };
 
@@ -214,7 +214,6 @@ const Settings = () => {
               <h1 className="text-4xl font-black tracking-tight bg-gradient-to-r from-white to-white/70 bg-clip-text text-transparent">
               {t('settings.title') || "Configurações"}
             </h1>
-              <div className="absolute -bottom-1 left-0 h-[1px] w-20 bg-gradient-to-r from-indigo-500 to-indigo-500/0"></div>
           </div>
             <p className="text-slate-400 max-w-2xl">
               {t('settings.subtitle') || "Personalize sua experiência com a plataforma ajustando suas preferências e configurações"}
@@ -296,7 +295,7 @@ const Settings = () => {
       {/* Modal para termos e políticas com design mais escuro */}
       <Dialog open={showTermsModal} onOpenChange={setShowTermsModal}>
         <DialogContent className="bg-slate-950/95 border-slate-800 backdrop-blur-xl max-w-2xl max-h-[80vh] overflow-hidden">
-          <div className="absolute inset-0 bg-gradient-to-br from-indigo-950/5 to-black/90 z-0"></div>
+          <div className="absolute inset-0 bg-gradient-to-br from-slate-950/5 to-black/90 z-0"></div>
           
           <DialogHeader className="relative z-10">
             <DialogTitle className="text-2xl font-light text-white/90">{t('settings.terms.title') || "Termos de Uso"}</DialogTitle>
@@ -347,7 +346,7 @@ const Settings = () => {
           <div className="flex justify-end mt-4 relative z-10">
             <Button 
               onClick={() => setShowTermsModal(false)} 
-              className="bg-indigo-600 hover:bg-indigo-700 text-white border-none"
+              className="bg-slate-700 hover:bg-slate-600 text-white border-none"
             >
               {t('settings.close') || "Fechar"}
             </Button>
