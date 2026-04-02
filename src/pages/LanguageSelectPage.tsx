@@ -238,7 +238,7 @@ const LanguageSelectPage = () => {
       <div className={`absolute inset-0 transition-opacity duration-700 ${getBackgroundStyle()}`} />
       
       {/* Efeito de reflexo na parte superior */}
-      <div className={`absolute top-0 left-0 right-0 h-32 ${selectedLang?.highlightColor || 'bg-indigo-500/10'} blur-3xl transform -translate-y-1/2 transition-all duration-700`} />
+      <div className={`absolute top-0 left-0 right-0 h-32 ${selectedLang?.highlightColor || 'bg-slate-800/10'} blur-3xl transform -translate-y-1/2 transition-all duration-700`} />
 
       {/* Conteúdo principal */}
       <motion.div

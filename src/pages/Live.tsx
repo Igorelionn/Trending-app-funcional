@@ -1719,8 +1719,8 @@ export default function Live() {
           <div className="absolute inset-0 bg-gradient-to-r from-gray-950/40 via-black to-gray-950/40"></div>
           
           {/* Efeitos de iluminação sutil */}
-          <div className="absolute top-0 left-1/4 w-96 h-96 bg-indigo-500/3 rounded-full blur-3xl"></div>
-          <div className="absolute bottom-0 right-1/3 w-80 h-80 bg-purple-500/3 rounded-full blur-3xl"></div>
+          <div className="absolute top-0 left-1/4 w-96 h-96 bg-slate-900/3 rounded-full blur-3xl"></div>
+          <div className="absolute bottom-0 right-1/3 w-80 h-80 bg-slate-800/3 rounded-full blur-3xl"></div>
           
           <div className="relative z-10 max-w-3xl">
             <h1 className="text-3xl sm:text-4xl md:text-5xl font-bold text-white mb-4">
@@ -1874,10 +1874,10 @@ export default function Live() {
                   <div className="relative flex flex-col items-center justify-center py-24 px-12 text-center bg-black rounded-2xl border border-gray-900/30 backdrop-blur-md overflow-hidden min-h-80">
                     {/* Efeitos de iluminação de fundo */}
                     <div className="absolute inset-0 bg-gradient-to-br from-gray-950/40 via-black to-gray-950/40"></div>
-                    <div className="absolute top-0 left-1/4 w-72 h-72 bg-indigo-500/5 rounded-full blur-3xl"></div>
-                    <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-purple-500/5 rounded-full blur-3xl"></div>
-                    <div className="absolute top-1/2 left-0 w-48 h-48 bg-blue-500/3 rounded-full blur-2xl"></div>
-                    <div className="absolute top-1/2 right-0 w-64 h-64 bg-violet-500/3 rounded-full blur-2xl"></div>
+                    <div className="absolute top-0 left-1/4 w-72 h-72 bg-slate-900/5 rounded-full blur-3xl"></div>
+                    <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-slate-800/5 rounded-full blur-3xl"></div>
+                    <div className="absolute top-1/2 left-0 w-48 h-48 bg-slate-700/3 rounded-full blur-2xl"></div>
+                    <div className="absolute top-1/2 right-0 w-64 h-64 bg-slate-600/3 rounded-full blur-2xl"></div>
                                         
                     {/* Grade sutil de fundo */}
                     <div className="absolute inset-0 bg-grid-white/[0.005] [mask-image:radial-gradient(ellipse_at_center,transparent_20%,black)]"></div>
