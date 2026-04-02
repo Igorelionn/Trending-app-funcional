@@ -204,8 +204,7 @@ const Instructions = () => {
           </Button>
         </motion.div>
 
-        {/* Vídeo Principal - TEMPORARIAMENTE DESABILITADO */}
-        {/* 
+        {/* Vídeo Principal */}
         <motion.div 
           className="mb-12 rounded-xl shadow-[0_5px_30px_rgba(0,0,0,0.25)] overflow-visible"
           initial={{ opacity: 0, scale: 0.95 }}
@@ -223,7 +222,6 @@ const Instructions = () => {
             </div>
           </div>
         </motion.div>
-        */}
 
         {/* Menu de navegação */}
         <motion.div 

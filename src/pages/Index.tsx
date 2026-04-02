@@ -511,8 +511,7 @@ const Index = () => {
           </div>
         </div>
 
-        {/* Área do vídeo - TEMPORARIAMENTE DESABILITADO */}
-        {/* 
+        {/* Área do vídeo */}
         <div className="relative w-full mb-8">
           <VideoPlayer
             videoKey="video.main"
@@ -524,7 +523,6 @@ const Index = () => {
             canHide={true}
           />
         </div>
-        */}
 
         <div className="grid gap-6 md:grid-cols-5 relative z-10">
           <div className="md:col-span-3">
