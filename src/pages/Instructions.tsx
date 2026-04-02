@@ -178,6 +178,7 @@ const Instructions = () => {
 
   return (
     <Layout>
+        
       <div className="max-w-screen-lg mx-auto px-4 pb-20 relative z-1 overflow-visible">
         {/* Cabeçalho */}
         <motion.div 
