@@ -15,20 +15,6 @@ const Profile = () => {
       <div className="fixed inset-0 bg-black z-[-1]">
         <div className="absolute inset-0 bg-gradient-to-bl from-slate-950 via-black to-slate-950"></div>
         <div className="absolute inset-0 bg-[url('/grid-pattern.svg')] bg-center opacity-[0.02]"></div>
-        
-        {/* Círculos de destaque */}
-        <motion.div 
-          className="absolute top-20 left-1/4 w-[400px] h-[400px] rounded-full blur-[120px] opacity-10 from-indigo-600/10"
-          animate={{ 
-            opacity: [0.05, 0.15, 0.05],
-            scale: [1, 1.1, 1],
-          }}
-          transition={{ 
-            duration: 8, 
-            repeat: Infinity,
-            repeatType: "reverse" 
-          }}
-        />
       </div>
 
       <div className="max-w-3xl mx-auto">
@@ -40,8 +26,8 @@ const Profile = () => {
           <Card className="border-none shadow-xl bg-gradient-to-b from-black/50 to-black/20 backdrop-blur-sm rounded-xl">
             <CardHeader className="pb-4">
               <div className="flex items-center gap-3 mb-2">
-                <div className="flex items-center justify-center w-8 h-8 rounded-full bg-indigo-600/10">
-                  <User className="w-4 h-4 text-indigo-400" />
+                <div className="flex items-center justify-center w-8 h-8 rounded-full bg-slate-800/10">
+                  <User className="w-4 h-4 text-slate-400" />
                 </div>
                 <CardTitle className="text-xl font-semibold text-white/90">
                   {t('profile.title') || "Meu Perfil"}

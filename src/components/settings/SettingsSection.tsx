@@ -20,7 +20,7 @@ export function SettingsSection({
   icon, 
   children, 
   className,
-  accentColor = "indigo",
+  accentColor = "slate",
   minimal = false
 }: SettingsSectionProps) {
   // Se for o modo minimal, usar um estilo mais simples
