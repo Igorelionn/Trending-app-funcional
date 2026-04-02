@@ -483,13 +483,6 @@ const Index = () => {
   return (
     <Layout>
       <div className="animate-fade space-y-8">
-        {/* Elementos decorativos flutuantes */}
-        <div className="fixed w-full h-full inset-0 z-0 overflow-hidden pointer-events-none">
-          <div className="absolute top-[10%] right-[5%] w-32 h-32 bg-gradient-to-r from-purple-500/10 to-violet-500/5 rounded-full blur-3xl"></div>
-          <div className="absolute bottom-[20%] left-[8%] w-40 h-40 bg-gradient-to-r from-emerald-500/5 to-teal-500/10 rounded-full blur-3xl"></div>
-          <div className="absolute top-[40%] left-[30%] w-24 h-24 bg-gradient-to-br from-white/5 to-white/10 rounded-full blur-2xl"></div>
-        </div>
-        
         <div className="flex items-center justify-between relative z-10">
           <div className="space-y-1">
             <h1 className="text-3xl font-bold tracking-tight relative pb-1

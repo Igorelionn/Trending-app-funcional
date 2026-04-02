@@ -178,13 +178,6 @@ const Instructions = () => {
 
   return (
     <Layout>
-      {/* Elementos visuais sutis de fundo */}
-      <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden">
-        <div className="absolute top-[10%] right-[10%] w-[35vw] h-[35vw] rounded-full bg-gradient-to-br from-blue-600/5 to-indigo-900/5 blur-[120px]" />
-        <div className="absolute bottom-[20%] left-[5%] w-[25vw] h-[25vw] rounded-full bg-gradient-to-br from-sky-500/5 to-emerald-600/5 blur-[100px]" />
-        <div className="absolute top-[40%] left-[35%] w-[15vw] h-[15vw] rounded-full bg-gradient-to-br from-amber-500/5 to-red-500/5 blur-[80px]" />
-        </div>
-        
       <div className="max-w-screen-lg mx-auto px-4 pb-20 relative z-1 overflow-visible">
         {/* Cabeçalho */}
         <motion.div 
