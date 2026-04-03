@@ -190,8 +190,11 @@ const Settings = () => {
 
   return (
     <Layout>
-      {/* Background com gradiente mais escuro e efeitos - z-index EXTREMAMENTE alto */}
-      <div className="fixed inset-0 bg-black z-[35]">
+      {/* OVERLAY SÓLIDO OPACO para BLOQUEAR TUDO - z-index MÁXIMO */}
+      <div className="fixed inset-0 bg-black z-[999]" style={{ backgroundColor: '#000000' }}></div>
+      
+      {/* Background com gradiente mais escuro - z-index MÁXIMO */}
+      <div className="fixed inset-0 z-[1000]">
         {/* Gradiente de fundo */}
         <div className="absolute inset-0 bg-gradient-to-bl from-slate-950 via-black to-slate-950"></div>
         
@@ -199,8 +202,8 @@ const Settings = () => {
         <div className="absolute inset-0 bg-[url('/grid-pattern.svg')] bg-center opacity-[0.02]"></div>
       </div>
 
-      {/* Container principal com sombra - z-index EXTREMAMENTE alto */}
-      <div className="relative z-[40] min-h-screen">
+      {/* Container principal com sombra - z-index MÁXIMO */}
+      <div className="relative z-[1001] min-h-screen">
         {/* Container para o conteúdo */}
         <div className="container mx-auto px-4 py-8 space-y-8">
           {/* Cabeçalho com título animado */}
