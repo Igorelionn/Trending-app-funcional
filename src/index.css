@@ -1123,6 +1123,31 @@
   pointer-events: none;
 }
 
+/* 🔥 BLOQUEIO TOTAL DE EFEITOS quando Settings está ativa */
+body.settings-page-active::before,
+body.settings-page-active::after {
+  display: none !important;
+}
+
+/* Remover TODOS os gradientes, rings, glows, e shadows azuis/indigo quando Settings está ativa */
+body.settings-page-active [class*="blue"],
+body.settings-page-active [class*="indigo"],
+body.settings-page-active [class*="cyan"],
+body.settings-page-active [class*="sky"] {
+  --tw-ring-color: transparent !important;
+  --tw-shadow: none !important;
+  box-shadow: none !important;
+}
+
+/* Forçar fundo completamente preto em Settings */
+body.settings-page-active {
+  background: #000000 !important;
+}
+
+body.settings-page-active #root {
+  background: #000000 !important;
+}
+
 /* Estilos para câmera flutuante otimizada */
 @keyframes floating-camera-pulse {
   0% { 

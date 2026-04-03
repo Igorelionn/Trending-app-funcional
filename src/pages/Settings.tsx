@@ -107,6 +107,17 @@ const Settings = () => {
   const [activeTab, setActiveTab] = useState("perfil");
   const [showTermsModal, setShowTermsModal] = useState(false);
   
+  // 🔥 Adicionar classe ao body para BLOQUEAR TUDO quando em Settings
+  useEffect(() => {
+    document.body.classList.add('settings-page-active');
+    document.body.style.overflow = 'hidden';
+    
+    return () => {
+      document.body.classList.remove('settings-page-active');
+      document.body.style.overflow = '';
+    };
+  }, []);
+  
   // 🔥 Detectar aba da URL
   useEffect(() => {
     const tabFromUrl = searchParams.get('tab');
